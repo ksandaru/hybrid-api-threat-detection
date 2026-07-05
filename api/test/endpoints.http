@@ -1,1 +1,48 @@
-### TODO (Phase 2): sample requests - normal login, wrong password, SQLi search, benign search, orders.
+### Health check
+GET http://localhost:3000/health
+
+### Register a user
+POST http://localhost:3000/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "correct-horse-battery-staple"
+}
+
+### Login — correct password (expect 200 + token)
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "correct-horse-battery-staple"
+}
+
+### Login — wrong password (expect 401)
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "wrong-password"
+}
+
+### Benign search (expect 200)
+GET http://localhost:3000/api/search/vulnerable?q=laptop
+
+### SQLi payload against the vulnerable endpoint (still expect 200 — no
+### detection middleware exists yet until Phase 3; this endpoint just
+### reflects the constructed query for inspection)
+GET http://localhost:3000/api/search/vulnerable?q=' OR '1'='1
+
+### Same SQLi payload against the secure endpoint (expect 200, no match)
+GET http://localhost:3000/api/search/secure?q=' OR '1'='1
+
+### Protected resource without a token (expect 401)
+GET http://localhost:3000/api/orders/123
+
+### Protected resource with a token (replace TOKEN with a value from the
+### login response above; expect 200)
+GET http://localhost:3000/api/orders/123
+Authorization: Bearer TOKEN
