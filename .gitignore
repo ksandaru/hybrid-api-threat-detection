@@ -1,0 +1,14 @@
+node_modules/
+ml/venv/
+ml/models/*.pkl
+datasets/raw/*
+datasets/processed/*
+!datasets/raw/.gitkeep
+!datasets/processed/.gitkeep
+.env
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+evaluation/figures/*.png
+*.log
