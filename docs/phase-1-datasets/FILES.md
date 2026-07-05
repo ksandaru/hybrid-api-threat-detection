@@ -23,9 +23,24 @@ noted as outside the project.
 | `repository/Web-Application-Attack-Datasets/` | Full clone of the CSIC 2010 / ECML mirror repo (579 MB) — source for the two CSV copies above |
 | `repository/Cisco_Ariel_Uni_API_security_challenge/` | Full clone of the ATRDF 2023 repo (280 MB) — source for the `Datasets/` copy above |
 
+## Processed corpus (gitignored — regenerable via `ml/preprocess.py`)
+
+| Path | Contents | Shape |
+|---|---|---|
+| `datasets/processed/train.parquet` | Unified Kaggle SQLiV3 + CSIC 2010 + CICIDS2017 corpus, 17 canonical features + label + attack_type + source | 677,166 × 20 |
+| `datasets/processed/heldout_atrdf.parquet` | ATRDF 2023, all 4 difficulty levels × train/val — never used in training | 540,057 × 20 |
+
+## Project files created/modified this phase
+
+| File | Purpose |
+|---|---|
+| `ml/features.py` | Canonical shared feature contract — `CANONICAL_FEATURE_ORDER`, `extract_payload_features()`, `default_flow_features()`/`default_payload_features()`, `shannon_entropy()` |
+| `ml/preprocess.py` | Per-source loaders (Kaggle/CSIC/CICIDS/ATRDF), `build_training_corpus()`, `build_heldout_corpus()`, `main()` writing both parquet files |
+| `ml/requirements.txt` | Version pins relaxed from `==` to `>=` (see `MEMORY.md` — Python 3.13 wheel availability) |
+| `ml/venv/` | Python virtual environment (gitignored, not committed) |
+| `evaluation/results.md` | Phase 1 dataset statistics section filled in |
+
 ## Project files not yet created
 
-- `ml/notebooks/01_explore.ipynb` (still the Phase 0 stub)
-- `ml/preprocess.py`, `ml/features.py` (still Phase 0 stubs)
-- `datasets/processed/train.parquet`, `datasets/processed/heldout_atrdf.parquet`
-- Dataset statistics section in `evaluation/results.md`
+- `ml/notebooks/01_explore.ipynb` (still the Phase 0 stub — see `MEMORY.md`
+  "Open items" for why an ad-hoc script was used instead)

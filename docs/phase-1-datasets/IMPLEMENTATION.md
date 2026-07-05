@@ -1,8 +1,11 @@
 # Phase 1 — Implementation Log
 
-Status: **In progress** — all four raw datasets acquired; exploration,
-preprocessing, feature engineering, and the unified parquet corpus are not
-yet built.
+Status: **Complete** — all four raw datasets acquired; feature engineering,
+preprocessing, and the unified parquet corpus are built. (Interactive
+notebook exploration in `ml/notebooks/01_explore.ipynb` was not filled in —
+the same exploration was done directly against the data while writing
+`preprocess.py`, and its findings are captured here and in
+`evaluation/results.md` instead.)
 
 ---
 
@@ -138,6 +141,144 @@ yet built.
 
 ## Part B — Exploration, preprocessing, feature engineering
 
-Status: **Not started yet.** To be filled in as this work happens:
-`ml/notebooks/01_explore.ipynb`, `ml/preprocess.py`, `ml/features.py`,
-`datasets/processed/train.parquet`, `datasets/processed/heldout_atrdf.parquet`.
+Status: **Complete.**
+
+### Step 6 — Inspect real data formats before writing any code
+
+- **What:** Before writing `preprocess.py`, loaded a few rows from each of
+  the four raw sources (Kaggle SQLiV3, CSIC 2010, both CICIDS2017 files,
+  one ATRDF `.7z` archive) to see actual column names, label encodings, and
+  data quality issues.
+- **Why:** The spec's own beginner guidance and the general engineering
+  principle of "verify before coding" — guessing column names or label
+  schemes for four differently-shaped datasets would have produced a
+  preprocessing script full of assumptions that silently fail or
+  mislabel data.
+- **How:** Used the project's `ml/venv` Python (see Step 5 below) to run
+  short inspection snippets against each raw file. Found:
+  - Kaggle `SQLiV3.csv` has corrupted rows where unescaped commas in the
+    `Sentence` text shift the `Label` value into extra `Unnamed` columns
+    (~1% of rows) — these are dropped rather than guessed at.
+  - CSIC 2010's `csic_final.csv` has a clean `Class` column (`Valid` /
+    `Anomalous`, 36,000 / 25,065 — exactly matching the spec's stated
+    counts) plus structured `URI`, `GET-Query`, `POST-Data` columns to
+    reconstruct a request payload string from.
+  - CICIDS2017's standard "MachineLearningCSV" column set (79 columns) has
+    **no Source IP or Timestamp column** — only pre-computed per-flow
+    statistics and a `Label` column with a leading space (confirming the
+    spec's warning). This is an important limitation: it means true
+    per-IP sliding-window features (`requests_per_min_ip`,
+    `unique_ip_count_window`) cannot be derived from this file format at
+    all.
+  - CICIDS2017's Thursday label values contain a mangled character (likely
+    an en-dash that became a Unicode replacement character during
+    encoding) — matched by substring (`"Brute Force" in label`) rather
+    than exact string equality.
+  - ATRDF 2023's JSON records are one HTTP request/response pair each,
+    with an `Attack_Tag` key present only on malicious requests (its
+    absence, not a `False`/`0` value, means benign).
+
+### Step 7 — Set up a Python virtual environment
+
+- **What:** Created `ml/venv` and installed `ml/requirements.txt`.
+- **Why:** No Python packages (pandas, scikit-learn, etc.) were installed
+  anywhere on the machine yet — needed before any dataset inspection or
+  preprocessing code could actually run.
+- **How:** `python -m venv ml/venv`, then
+  `pip install -r ml/requirements.txt`. First attempt failed:
+  `pyarrow==17.0.0` (and other exact-pinned versions in the original
+  requirements file) has no prebuilt wheel for Python 3.13, so pip tried
+  to build it from source and failed on a missing `pkg_resources`. Fixed
+  by relaxing all pins in `ml/requirements.txt` from `==` to `>=`, letting
+  pip resolve versions with actual 3.13 wheels (landed on pyarrow 24.0.0,
+  pandas 3.0.3, scikit-learn 1.9.0, xgboost 3.3.0).
+
+### Step 8 — Write the canonical feature contract (`ml/features.py`)
+
+- **What:** Defined `CANONICAL_FEATURE_ORDER` (12 payload-level + 5
+  flow-level feature names, in a fixed order), `extract_payload_features()`
+  (computes all 12 payload features from a request string: length,
+  SQL keyword count, quote/dash/semicolon/paren/equals counts, special-char
+  ratio, Shannon entropy, and three boolean SQLi-pattern flags), and
+  `default_flow_features()` / `default_payload_features()` (explicit
+  zero-fill helpers for sources that can't populate one of the two feature
+  families).
+- **Why:** The spec is explicit that this file and
+  `api/middleware/featureExtractor.js` (Phase 3) must produce identical
+  feature vectors — defining the contract once, in one place, with the
+  order as a named constant, is what makes that possible without drift.
+- **How:** Implemented directly in Python using `re` for keyword/pattern
+  matching and `collections.Counter` + `math.log2` for Shannon entropy.
+  Chose to expose the zero-fill defaults as named functions
+  (`default_flow_features()`/`default_payload_features()`) rather than
+  inlining `{name: 0.0 for name in ...}` everywhere, so every call site
+  documents *why* a family is zero-filled instead of it looking like a bug.
+
+### Step 9 — Write the unification pipeline (`ml/preprocess.py`)
+
+- **What:** One loader function per source
+  (`load_kaggle_sqli`, `load_csic`, `load_cicids`, `load_atrdf`), each
+  returning a DataFrame in the canonical schema (17 features + `label` +
+  `attack_type` + `source`), combined by `build_training_corpus()` (Kaggle +
+  CSIC + CICIDS only) and `build_heldout_corpus()` (ATRDF only, all 4
+  difficulty levels × train/val splits).
+- **Why:** Keeping one function per source (rather than one big branching
+  script) makes each source's quirks and label-mapping decisions visible
+  and independently testable, and makes the "never mix ATRDF into
+  training" rule structurally obvious (it's a separate function, called
+  from a separate builder, saved to a separate file).
+- **How:** Ran `ml/preprocess.py` end to end three times, finding and
+  fixing two real bugs along the way (see below) before trusting the
+  output. Final run: `datasets/processed/train.parquet` (677,166 rows) and
+  `datasets/processed/heldout_atrdf.parquet` (540,057 rows). Full
+  statistics written to `evaluation/results.md`.
+
+#### Bug 1 — post-feature `drop_duplicates()` silently discarded ~99.999% of CICIDS rows
+
+- **What happened:** The first working version of `build_training_corpus()`
+  ended with
+  `df.drop_duplicates(subset=CANONICAL_FEATURE_ORDER + ["label"])`. Running
+  the pipeline produced a training corpus with only **2 CICIDS rows** total
+  (expected: hundreds of thousands).
+- **Root cause:** CICIDS rows always have all 12 payload features
+  zero-filled (network flow data, no request text) and, at the time, 4 of
+  5 flow features were also zero-filled (the bug in "Bug 2" below made
+  `inter_arrival_time_variance` zero too). So almost every CICIDS row was
+  *feature-identical* to every other CICIDS row with the same label —
+  `drop_duplicates()` on the engineered feature vectors collapsed them all
+  down to essentially one row per label.
+- **Fix:** Removed the post-feature dedup entirely. Deduplication of raw,
+  near-identical network flow records already happens at the raw-record
+  level inside `_clean_cicids()` (a legitimate `drop_duplicates()` on the
+  full 79-column raw CICIDS row, before feature engineering collapses
+  dimensionality) — a second dedup pass *after* feature engineering was
+  simply wrong for a dataset whose engineered feature space is this coarse.
+- **Lesson for later phases:** Never deduplicate on an engineered/reduced
+  feature vector when the dataset's real information content is much
+  higher-dimensional than what got extracted — dedupe raw records, or not
+  at all.
+
+#### Bug 2 — leading-space column name mismatch silently zeroed a real feature
+
+- **What happened:** Even after fixing Bug 1, `inter_arrival_time_variance`
+  was exactly `0.0` for all 585,492 CICIDS rows (confirmed via `.describe()`
+  showing mean/std/max all `0.0`).
+- **Root cause:** `_clean_cicids()` strips leading spaces from CICIDS's raw
+  column names (e.g. `' Flow IAT Std'` → `'Flow IAT Std'`) before the main
+  loop runs. But `_cicids_flow_row()` looked up
+  `r.get(" Flow IAT Std", 0.0)` — **with** the leading space — so the
+  lookup always missed and silently fell back to the `0.0` default. No
+  exception was raised because `.get()` on a pandas Series with a missing
+  key just returns the default.
+- **Fix:** Changed the lookup key to `"Flow IAT Std"` (no leading space),
+  matching the already-stripped column name. Re-ran the pipeline;
+  `inter_arrival_time_variance` now has real, widely-spread non-zero
+  values (mean ≈ 3.8e13, since the underlying `Flow IAT Std` is in
+  microseconds and gets squared — worth normalising/scaling in Phase 4's
+  `StandardScaler`, not fixing here).
+- **Lesson for later phases:** `.get(key, default)` patterns hide missing-key
+  bugs completely — worth spot-checking derived feature columns with
+  `.describe()` after any non-trivial preprocessing step, especially when
+  a "default" value is a plausible real value (here, `0.0` is a perfectly
+  normal variance for a single-packet flow, so the bug didn't look
+  obviously wrong at a glance).
