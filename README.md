@@ -6,14 +6,17 @@ brute force, and credential stuffing attacks in real time.
 
 ## Current Status
 
-This repository is in the early implementation stage.
+This repository is in early-to-mid implementation.
 
 - Phase 0 scaffolding is present.
-- Phase 1 dataset preprocessing and the canonical ML feature contract are the
-  main implemented pieces (`ml/features.py`, `ml/preprocess.py`).
-- Phases 2-10 still contain intentional TODO stubs for the REST API, rule
-  middleware, model training, FastAPI inference, Docker Compose, attack
-  simulation, evaluation, and final deployment write-up.
+- Phase 1 dataset preprocessing and the canonical ML feature contract are
+  implemented (`ml/features.py`, `ml/preprocess.py`).
+- Phase 2 REST API is implemented and manually verified (`api/server.js`,
+  auth/search/orders routes) — runs standalone with `npm install` + `node
+  server.js`, no Docker required yet.
+- Phases 3-10 still contain intentional TODO stubs for rule middleware,
+  model training, FastAPI inference, hybrid integration, Docker Compose,
+  attack simulation, evaluation, and final deployment write-up.
 
 See `docs/PROJECT_STATUS.md` for the phase-by-phase status and review notes.
 
@@ -44,9 +47,9 @@ regardless of host OS.
 
 ## Current Local Workflow
 
-The full runtime stack is not ready yet because the API server, ML inference
-service, trained model artifacts, and Compose wiring are still future phases.
-Do not rely on `docker compose up` until Phase 7 is implemented.
+The full runtime stack is not ready yet because ML inference, detection
+middleware, trained model artifacts, and Compose wiring are still future
+phases. Do not rely on `docker compose up` until Phase 7 is implemented.
 
 The implemented Phase 1 preprocessing code can be run after the raw datasets
 have been placed under `datasets/raw/`:
@@ -60,6 +63,23 @@ python -m venv ml/venv
 The preprocessing output is written to `datasets/processed/`, which is
 gitignored because it is generated and large. See `datasets/README.md` for the
 expected local dataset layout.
+
+The Phase 2 API can be run standalone (no Docker, no detection middleware
+yet):
+
+```powershell
+cd api
+npm install
+copy ..\.env.example .env
+node server.js
+```
+
+`GET /health`, `POST /api/auth/register`, `POST /api/auth/login`,
+`GET /api/search/vulnerable?q=`, `GET /api/search/secure?q=`, and
+`GET /api/orders/:id` are all reachable. See `api/test/endpoints.http` for
+sample requests. Auth is in-memory only (resets on restart); Postgres
+logging in `api/db/pool.js` silently no-ops until Phase 7 provisions a
+database.
 
 ## Ethics
 
