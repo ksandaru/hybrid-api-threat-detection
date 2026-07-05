@@ -1,14 +1,50 @@
+# Node / API
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python / ML
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
 ml/venv/
-ml/models/*.pkl
+ml/.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Secrets and local environment overrides
+.env
+.env.*
+!.env.example
+
+# Large local datasets and derived corpora
 datasets/raw/*
 datasets/processed/*
 !datasets/raw/.gitkeep
 !datasets/processed/.gitkeep
-.env
-__pycache__/
-*.pyc
+
+# Generated model and evaluation artifacts
+ml/models/*
+!ml/models/.gitkeep
+!ml/models/feature_order.json
+evaluation/figures/*
+!evaluation/figures/.gitkeep
+
+# Logs, OS, and editor noise
+*.log
+logs/
 .DS_Store
 Thumbs.db
-evaluation/figures/*.png
-*.log
+.vscode/
+.idea/

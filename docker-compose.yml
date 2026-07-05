@@ -1,1 +1,5 @@
-# TODO (Phase 7): wire api, ml, db services together (api depends_on ml,db; shared Docker network).
+# Phase 7 placeholder.
+#
+# Do not use Docker Compose as the primary run path yet: the API server,
+# FastAPI inference app, trained models, database schema, and service wiring
+# are still TODO stubs. See docs/PROJECT_STATUS.md for the current phase map.

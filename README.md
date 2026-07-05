@@ -4,6 +4,19 @@ MSc Cyber Security dissertation artefact (CB016639). A hybrid rule-based +
 machine-learning detection framework for REST APIs, targeting SQL injection,
 brute force, and credential stuffing attacks in real time.
 
+## Current Status
+
+This repository is in the early implementation stage.
+
+- Phase 0 scaffolding is present.
+- Phase 1 dataset preprocessing and the canonical ML feature contract are the
+  main implemented pieces (`ml/features.py`, `ml/preprocess.py`).
+- Phases 2-10 still contain intentional TODO stubs for the REST API, rule
+  middleware, model training, FastAPI inference, Docker Compose, attack
+  simulation, evaluation, and final deployment write-up.
+
+See `docs/PROJECT_STATUS.md` for the phase-by-phase status and review notes.
+
 ## Architecture
 
 ```
@@ -29,15 +42,24 @@ Linux containers (`node:22-slim`, `python:3.13-slim` base images) under Docker
 Compose for the evaluation runtime, so the deployed artefact is Linux-based
 regardless of host OS.
 
-## Running the stack
+## Current Local Workflow
 
-```
-docker compose up --build
+The full runtime stack is not ready yet because the API server, ML inference
+service, trained model artifacts, and Compose wiring are still future phases.
+Do not rely on `docker compose up` until Phase 7 is implemented.
+
+The implemented Phase 1 preprocessing code can be run after the raw datasets
+have been placed under `datasets/raw/`:
+
+```powershell
+python -m venv ml/venv
+.\ml\venv\Scripts\python -m pip install -r ml\requirements.txt
+.\ml\venv\Scripts\python ml\preprocess.py
 ```
 
-See `docs/deployment-aws-feasibility.md` for a discussion of how this system
-would be productionised on AWS (written-only, no cloud resources are used in
-this project).
+The preprocessing output is written to `datasets/processed/`, which is
+gitignored because it is generated and large. See `datasets/README.md` for the
+expected local dataset layout.
 
 ## Ethics
 
