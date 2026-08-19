@@ -11,12 +11,18 @@ This repository is in early-to-mid implementation.
 - Phase 0 scaffolding is present.
 - Phase 1 dataset preprocessing and the canonical ML feature contract are
   implemented (`ml/features.py`, `ml/preprocess.py`).
-- Phase 2 REST API is implemented and manually verified (`api/server.js`,
-  auth/search/orders routes) — runs standalone with `npm install` + `node
-  server.js`, no Docker required yet.
-- Phases 3-10 still contain intentional TODO stubs for rule middleware,
-  model training, FastAPI inference, hybrid integration, Docker Compose,
-  attack simulation, evaluation, and final deployment write-up.
+- Phase 2 REST API, Phase 3 rule-based detection middleware, Phase 4 model
+  training, Phase 5 inference service and Phase 6 hybrid integration are all
+  implemented and verified.
+- Phase 7 Docker Compose brings the three services up together.
+- Phases 8-10 remain: attack simulation, comparative evaluation, and the final
+  documentation and AWS write-up.
+
+Measured results so far are in `evaluation/results.md`. One finding is worth
+stating up front: the hybrid catches attacks the rules miss, but its false
+positive rate on this API's own benign traffic is currently too high to call it
+deployable. The cause is that the training corpus does not represent live API
+traffic, and Phase 8 is where that gets measured and corrected.
 
 See `docs/PROJECT_STATUS.md` for the phase-by-phase status and review notes.
 
@@ -45,14 +51,46 @@ Linux containers (`node:22-slim`, `python:3.13-slim` base images) under Docker
 Compose for the evaluation runtime, so the deployed artefact is Linux-based
 regardless of host OS.
 
-## Current Local Workflow
+## Running the Stack
 
-The full runtime stack is not ready yet because ML inference, detection
-middleware, trained model artifacts, and Compose wiring are still future
-phases. Do not rely on `docker compose up` until Phase 7 is implemented.
+The whole system runs under Docker Compose:
 
-The implemented Phase 1 preprocessing code can be run after the raw datasets
-have been placed under `datasets/raw/`:
+```powershell
+docker compose up --build
+```
+
+That starts PostgreSQL, the inference service and the API, in that order — the
+API waits for both dependencies to report healthy, so a request never reaches a
+service that has not finished loading. The API is then on
+<http://localhost:3000>.
+
+**Prerequisite:** `ml/models/` must contain trained artefacts. They are
+bind-mounted rather than baked into the image, because the Random Forest alone
+is 259 MB and none of them are in version control. From a fresh clone, place the
+raw datasets (see `datasets/README.md`) and run:
+
+```powershell
+python -m venv ml/venv
+.\ml\venv\Scripts\python -m pip install -r ml\requirements.txt
+.\ml\venv\Scripts\python ml\preprocess.py
+.\ml\venv\Scripts\python ml\train.py
+```
+
+Behaviour is selected by environment variable, which is how the Phase 9
+evaluation builds its comparison configurations without code changes:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `DETECTION_MODE` | `hybrid` | `off`, `rules`, `hybrid` |
+| `DETECTION_THRESHOLD` | `0.7` | Combined score at which a request is blocked |
+| `COMBINE_STRATEGY` | `noisy_or` | `noisy_or`, `weighted`, `max`, `rules_only` |
+| `ML_TIMEOUT_MS` | `250` | Inference timeout before falling back to rules |
+| `DETECTION_TRACE` | `0` | Set to `1` to log the score breakdown per request |
+
+## Running Components Individually
+
+The preprocessing code can be run after the raw datasets have been placed under
+`datasets/raw/`:
 
 ```powershell
 python -m venv ml/venv
@@ -64,8 +102,7 @@ The preprocessing output is written to `datasets/processed/`, which is
 gitignored because it is generated and large. See `datasets/README.md` for the
 expected local dataset layout.
 
-The Phase 2 API can be run standalone (no Docker, no detection middleware
-yet):
+The API can be run standalone, without Docker:
 
 ```powershell
 cd api
@@ -74,12 +111,27 @@ copy ..\.env.example .env
 node server.js
 ```
 
+For the hybrid path it needs the inference service alongside it, started from
+`ml/`:
+
+```powershell
+..\ml\venv\Scripts\python -m uvicorn app:app --port 8000
+```
+
+Verification scripts:
+
+```powershell
+node api/test/featureParity.js        # JS and Python feature contracts agree
+node api/test/hybridIntegration.js    # end-to-end; --no-ml for the fail-open path
+.\ml\venv\Scripts\python ml\test_inference.py
+```
+
 `GET /health`, `POST /api/auth/register`, `POST /api/auth/login`,
 `GET /api/search/vulnerable?q=`, `GET /api/search/secure?q=`, and
 `GET /api/orders/:id` are all reachable. See `api/test/endpoints.http` for
 sample requests. Auth is in-memory only (resets on restart); Postgres
-logging in `api/db/pool.js` silently no-ops until Phase 7 provisions a
-database.
+logging in `api/db/pool.js` writes to the `request_log` table when the
+stack is running under Compose, and fails soft when it is not.
 
 ## Ethics
 

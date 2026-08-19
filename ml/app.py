@@ -59,6 +59,24 @@ app = FastAPI(
 STATE: Dict[str, object] = {"ready": False, "error": None}
 
 
+def _env_float(name: str, default) -> float:
+    """Read a float from the environment, treating unset and empty as absent.
+
+    Docker Compose expands `${W_RF:-}` to an empty string rather than leaving
+    the variable unset, so os.getenv returns "" and float("") raises. An
+    optional override that is merely not being used must not stop the service
+    from starting.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return float(default)
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"[config] ignoring non-numeric {name}={raw!r}, using {default}")
+        return float(default)
+
+
 def _load() -> None:
     """Load every artefact once. Failures are recorded rather than raised so
     /health can report why the service is not ready instead of the process
@@ -69,11 +87,11 @@ def _load() -> None:
         global W_RF, W_XGB, W_ISO, ATTACK_THRESHOLD
         op = meta.get("operating_point") or {}
         w = op.get("weights") or {}
-        W_RF = float(os.getenv("W_RF", w.get("random_forest", 0.4)))
-        W_XGB = float(os.getenv("W_XGB", w.get("xgboost", 0.4)))
-        W_ISO = float(os.getenv("W_ISO", w.get("isolation_forest", 0.2)))
-        ATTACK_THRESHOLD = float(
-            os.getenv("ML_ATTACK_THRESHOLD", op.get("selected_threshold", 0.5)))
+        W_RF = _env_float("W_RF", w.get("random_forest", 0.4))
+        W_XGB = _env_float("W_XGB", w.get("xgboost", 0.4))
+        W_ISO = _env_float("W_ISO", w.get("isolation_forest", 0.2))
+        ATTACK_THRESHOLD = _env_float(
+            "ML_ATTACK_THRESHOLD", op.get("selected_threshold", 0.5))
         STATE["operating_point"] = op
 
         cal = meta.get("iso_calibration") or {}

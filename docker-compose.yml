@@ -1,5 +1,98 @@
-# Phase 7 placeholder.
+# Full stack: API and detection middleware, inference service, database.
 #
-# Do not use Docker Compose as the primary run path yet: the API server,
-# FastAPI inference app, trained models, database schema, and service wiring
-# are still TODO stubs. See docs/PROJECT_STATUS.md for the current phase map.
+#   docker compose up --build
+#
+# Prerequisite: ml/models must contain trained artefacts. They are bind-mounted
+# rather than copied into the image, because the Random Forest alone is 259 MB
+# and none of them are in version control. Run this first if the directory is
+# empty:
+#
+#   .\ml\venv\Scripts\python ml\preprocess.py
+#   .\ml\venv\Scripts\python ml\train.py
+#
+# The API waits for both dependencies to report healthy before it starts, so a
+# request never arrives at a service that has not finished loading.
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-detector}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-detector123}
+      POSTGRES_DB: ${POSTGRES_DB:-api_threat_detection}
+    # Scripts here run once, on first initialisation of an empty data volume.
+    # Dropping the volume re-runs them.
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-detector} -d ${POSTGRES_DB:-api_threat_detection}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [detection]
+
+  ml:
+    build:
+      context: ./ml
+    environment:
+      PORT: 8000
+      # Weights and threshold come from the trained artefact. Set these only to
+      # override for a Phase 9 sweep.
+      W_RF: ${W_RF:-}
+      W_XGB: ${W_XGB:-}
+      W_ISO: ${W_ISO:-}
+      ML_ATTACK_THRESHOLD: ${ML_ATTACK_THRESHOLD:-}
+    volumes:
+      - ./ml/models:/usr/src/app/models:ro
+    ports:
+      - "${ML_PORT:-8000}:8000"
+    healthcheck:
+      # Checks readiness, not just liveness. The service answers /health while
+      # artefacts are still loading, and the API must not start sending traffic
+      # until the models are actually resident.
+      test: ["CMD", "python", "-c", "import json,sys,urllib.request; sys.exit(0 if json.load(urllib.request.urlopen('http://localhost:8000/health', timeout=3)).get('ready') else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks: [detection]
+
+  api:
+    build:
+      context: ./api
+    environment:
+      PORT: 3000
+      # Service names, not localhost: each container has its own loopback.
+      ML_SERVICE_URL: http://ml:8000
+      DATABASE_URL: postgres://${POSTGRES_USER:-detector}:${POSTGRES_PASSWORD:-detector123}@db:5432/${POSTGRES_DB:-api_threat_detection}
+      DETECTION_MODE: ${DETECTION_MODE:-hybrid}
+      DETECTION_THRESHOLD: ${DETECTION_THRESHOLD:-0.7}
+      COMBINE_STRATEGY: ${COMBINE_STRATEGY:-noisy_or}
+      ML_TIMEOUT_MS: ${ML_TIMEOUT_MS:-250}
+      DETECTION_TRACE: ${DETECTION_TRACE:-0}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-local-env}
+    depends_on:
+      ml:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [detection]
+
+networks:
+  detection:
+    driver: bridge
+
+volumes:
+  pgdata:
