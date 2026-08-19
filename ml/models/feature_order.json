@@ -1,0 +1,21 @@
+{
+  "feature_order": [
+    "payload_length",
+    "sql_keyword_count",
+    "single_quote_count",
+    "double_dash_count",
+    "semicolon_count",
+    "paren_count",
+    "equals_count",
+    "special_char_ratio",
+    "shannon_entropy",
+    "has_union_select",
+    "has_or_equals",
+    "has_comment",
+    "requests_per_min_ip",
+    "login_failure_ratio",
+    "inter_arrival_time_variance",
+    "distinct_usernames_tried",
+    "unique_ip_count_window"
+  ]
+}
