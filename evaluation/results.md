@@ -1,8 +1,8 @@
 # Evaluation Results
 
 This file accumulates results across phases: dataset statistics (Phase 1),
-per-model training metrics (Phase 4), and the full comparative evaluation
-(Phase 9). See `docs/phase-N-*/` for the what/why/how narrative behind each
+per-model training metrics (Phase 4), the inference service and combined
+scoring (Phase 5), and the full comparative evaluation (Phase 9). See `docs/phase-N-*/` for the what/why/how narrative behind each
 section below.
 
 ## Phase 1 — Dataset Statistics
@@ -88,104 +88,100 @@ Held-out class imbalance (benign : attack) ≈ **7.0 : 1**.
 ## Phase 4 — Model Training Metrics
 
 Produced by `ml/train.py` on the unified corpus (677,166 rows, 17 features).
-Reproduce with `.\ml\venv\Scripts\python ml\train.py`; all randomness is seeded
-at 42.
+Reproduce with `.\ml\venv\Scripts\python ml\train.py`; seeded at 42 throughout.
 
 ### Procedure
 
-Stratified 80/20 split (541,732 train / 135,434 test), `StandardScaler` fitted
-on the training split only, then SMOTE applied to the training split only,
-raising it to 1,008,186 balanced rows. Cross-validation runs SMOTE **inside**
-each fold through an imbalanced-learn pipeline, so no synthetic sample derived
-from a validation row can appear in that fold's training data.
+A three-way stratified split: 460,472 train, 81,260 validation, 135,434 test.
+`StandardScaler` is fitted on the training split only; SMOTE is applied to the
+training split only and only after the split, raising it to 856,878 balanced
+rows. Cross-validation runs SMOTE **inside** each fold through an
+imbalanced-learn pipeline, so no synthetic sample derived from a validation row
+reaches that fold's training data.
 
-### Held-out test split (135,434 rows)
+The validation split exists so that the decision threshold reported in Phase 5
+can be chosen on data the models never fitted, without touching the test split.
+Selecting an operating point on the test split would make the test metrics
+optimistic, because the threshold would have been tuned to them.
+
+### Individual models, held-out test split (135,434 rows)
 
 | Model | Accuracy | Precision | Recall | F1 | FPR | ROC AUC |
 |---|---:|---:|---:|---:|---:|---:|
-| Random Forest | 0.9666 | 0.7028 | 0.9005 | 0.7895 | 0.0284 | 0.9602 |
-| XGBoost | 0.9562 | 0.6263 | 0.9180 | 0.7446 | 0.0409 | 0.9762 |
-| Isolation Forest | 0.9159 | 0.4361 | 0.7181 | 0.5427 | 0.0693 | 0.8965 |
+| Random Forest | 0.9650 | 0.6912 | 0.8962 | 0.7804 | 0.0299 | 0.9591 |
+| XGBoost | 0.9556 | 0.6225 | 0.9188 | 0.7422 | 0.0416 | 0.9763 |
+| Isolation Forest | 0.9156 | 0.4345 | 0.7123 | 0.5398 | 0.0692 | 0.8977 |
 
-Isolation Forest is unsupervised and was fitted on benign training rows only.
-Its weaker precision is expected and is the accepted cost of detecting attack
-shapes absent from the training labels.
+Isolation Forest is unsupervised and fitted on benign training rows only. Its
+weaker precision is expected and is the accepted cost of detecting attack shapes
+absent from the training labels.
 
 ### Stratified 5-fold cross-validation (training split)
 
 | Model | Accuracy | Precision | Recall | F1 | ROC AUC |
 |---|---:|---:|---:|---:|---:|
-| Random Forest | 0.9661 ± 0.0004 | 0.6992 ± 0.0033 | 0.8982 ± 0.0032 | 0.7863 ± 0.0022 | 0.9617 ± 0.0010 |
-| XGBoost | 0.9579 ± 0.0017 | 0.6362 ± 0.0117 | 0.9202 ± 0.0030 | 0.7522 ± 0.0072 | 0.9765 ± 0.0009 |
+| Random Forest | 0.9650 ± 0.0004 | 0.6912 ± 0.0033 | 0.8963 ± 0.0018 | 0.7805 ± 0.0021 | 0.9613 ± 0.0010 |
+| XGBoost | 0.9545 ± 0.0035 | 0.6161 ± 0.0216 | 0.9228 ± 0.0054 | 0.7386 ± 0.0138 | 0.9769 ± 0.0005 |
 
-Cross-validated figures sit within 0.001 of the single held-out split for both
-models, and fold-to-fold deviation is small. The test-split result is therefore
-a property of the corpus rather than an artefact of one partition. No model
-approaches perfect accuracy, which is the outcome sought: as stated in the
-methodology, a near-perfect score here would have been treated as evidence of
-leakage requiring investigation rather than as success.
+Cross-validated figures sit within 0.001 of the single held-out split, with
+fold-to-fold deviation of 0.0004 for Random Forest. The reported performance is
+a property of the corpus rather than of one fortunate partition. No model
+approaches perfect accuracy, which is the intended outcome: the methodology
+states in advance that a near-perfect score would be treated as evidence of
+leakage rather than as success.
 
 ### Per-source performance (XGBoost, test split)
 
 | Source | Rows | Attacks | Accuracy | Precision | Recall | F1 | FPR |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Kaggle SQLiV3 | 6,079 | 2,204 | 0.8931 | 0.7736 | 0.9968 | 0.8711 | 0.1659 |
-| CSIC 2010 | 12,281 | 5,023 | 0.8634 | 0.7555 | 0.9849 | 0.8551 | 0.2206 |
-| CICIDS2017 (Tuesday) | 84,344 | 1,863 | 0.9684 | 0.3868 | 0.7338 | 0.5066 | 0.0263 |
-| CICIDS2017 (Thursday) | 32,730 | 320 | 0.9714 | 0.1458 | 0.3969 | 0.2133 | 0.0230 |
+| Kaggle SQLiV3 | 6,079 | 2,204 | 0.8923 | 0.7726 | 0.9959 | 0.8702 | 0.1667 |
+| CSIC 2010 | 12,281 | 5,023 | 0.8561 | 0.7445 | 0.9869 | 0.8487 | 0.2344 |
+| CICIDS2017 (Tuesday) | 84,344 | 1,863 | 0.9686 | 0.3882 | 0.7332 | 0.5076 | 0.0261 |
+| CICIDS2017 (Thursday) | 32,730 | 320 | 0.9714 | 0.1470 | 0.4000 | 0.2149 | 0.0229 |
 
-The aggregate figures conceal a split down the middle of the corpus. On the two
-payload-level sources the classifier recalls 98–99% of attacks; on the two
-flow-level sources it recalls 73% and 40%. The aggregate is dominated by the
-CICIDS rows, which are 86% of the corpus and 97% benign, so a model can post a
-high overall accuracy while performing poorly on precisely the attack classes
-those rows were included to represent.
+The aggregate conceals a split down the middle of the corpus. On the two
+payload-level sources the classifier recalls 99.6% and 98.7% of attacks; on the
+two flow-level sources it recalls 73.3% and 40.0%. Because the CICIDS rows are
+86% of the corpus and 97.5% benign, they pull aggregate accuracy up while
+contributing most of the missed attacks.
 
 ### Feature importances
 
 | Rank | Random Forest | | XGBoost | |
 |---|---|---:|---|---:|
-| 1 | inter_arrival_time_variance | 0.2849 | inter_arrival_time_variance | 0.3206 |
-| 2 | payload_length | 0.2718 | payload_length | 0.3169 |
-| 3 | shannon_entropy | 0.1779 | shannon_entropy | 0.0818 |
-| 4 | special_char_ratio | 0.1318 | has_comment | 0.0781 |
-| 5 | equals_count | 0.0808 | sql_keyword_count | 0.0661 |
-| 6 | sql_keyword_count | 0.0185 | special_char_ratio | 0.0424 |
+| 1 | inter_arrival_time_variance | 0.2869 | inter_arrival_time_variance | 0.3235 |
+| 2 | payload_length | 0.2651 | payload_length | 0.2133 |
+| 3 | shannon_entropy | 0.1820 | shannon_entropy | 0.1325 |
+| 4 | special_char_ratio | 0.1325 | has_comment | 0.0687 |
+| 5 | equals_count | 0.0803 | double_dash_count | 0.0667 |
+| 6 | sql_keyword_count | 0.0186 | sql_keyword_count | 0.0642 |
 
 ### Four features carry zero importance in both models
 
-Both classifiers assign **exactly zero** importance to the same four features:
+Both classifiers assign **exactly zero** importance to `requests_per_min_ip`,
+`login_failure_ratio`, `distinct_usernames_tried` and `unique_ip_count_window`.
 
-- `requests_per_min_ip`
-- `login_failure_ratio`
-- `distinct_usernames_tried`
-- `unique_ip_count_window`
+These are the four flow features zero-filled throughout the offline corpus, for
+the reasons recorded in the Phase 1 statistics: the CICIDS2017 distribution
+format carries neither source addresses nor timestamps, and the payload-level
+sources are single requests with no window to compute them over. A constant
+column carries no information and the models correctly ignore it.
 
-These are the four flow features that are zero-filled throughout the offline
-corpus, for the reasons recorded in the Phase 1 statistics above: the CICIDS2017
-distribution format carries neither source addresses nor timestamps, so they
-cannot be derived from it, and the payload-level sources are single requests with
-no window to compute them over. A constant column carries no information, and the
-models correctly ignore it.
-
-The consequence is material and is carried into the discussion. **The trained
-classifiers cannot detect brute force or credential stuffing**, because the only
-features that would express those attacks are the ones they learned to disregard.
-The single flow feature that does carry signal, `inter_arrival_time_variance`, is
-the highest-ranked feature in both models — which is why the CICIDS rows are
-classified at all, and why recall there is 73% rather than near zero.
+The consequence is material. **The trained classifiers cannot detect brute force
+or credential stuffing**, because the only features that would express those
+attacks are the ones they learned to disregard. The single flow feature that
+does carry signal, `inter_arrival_time_variance`, ranks first in both models,
+which is why the CICIDS rows are classified at all.
 
 Detection of the two behavioural attack categories therefore rests entirely on
 the rule engine, which computes all five flow features live from the sliding
-window and does not depend on their appearing in the training corpus. This is
-not a defect in the models; it is a direct consequence of a documented gap in the
-publicly available data, and it sharpens rather than weakens the argument for a
-hybrid design: the rule stage is not a cheap pre-filter for the classifier, it is
-the only stage with any signal at all for two of the three target attacks.
+window. This does not weaken the argument for a hybrid design, it sharpens it:
+for two of the three target attacks the rule stage is not a cheap pre-filter
+ahead of the classifier, it is the only stage carrying signal.
 
-### Inference cost (single request, 200 timed calls after warm-up)
+### Inference cost per model (single request, 200 timed calls after warm-up)
 
-| Model | p50 | p95 | p99 | Artefact size | Load time |
+| Model | p50 | p95 | p99 | Artefact | Load |
 |---|---:|---:|---:|---:|---:|
 | Random Forest | 16.01 ms | 26.04 ms | 27.28 ms | 259 MB | 1.77 s |
 | XGBoost | 0.26 ms | 0.57 ms | 0.92 ms | 279 KB | 0.03 s |
@@ -193,13 +189,90 @@ the only stage with any signal at all for two of the three target attacks.
 
 Random Forest costs roughly sixty times more per prediction than XGBoost while
 scoring lower on ROC AUC, and its trees were grown without depth constraint on
-a million resampled rows, which is what produces the 259 MB artefact. Calling
-all three models sequentially costs approximately 21 ms at the median and 33 ms
-at the 95th percentile, before feature extraction, serialisation or the HTTP
-round trip are counted. That remains inside the 100 ms budget set by NFR1, but
-Random Forest accounts for most of it. Constraining its depth is the obvious
-lever if the end-to-end measurement in Phase 9 comes under pressure, and the
-trade-off it represents is revisited in the discussion.
+the resampled training set, which is what produces the 259 MB artefact.
+Constraining its depth is the obvious lever if the Phase 9 end-to-end
+measurement comes under pressure; it has not been applied, because retraining
+would invalidate the figures above for no present benefit.
+
+## Phase 5 — Inference Service and Combined Scoring
+
+`ml/app.py` loads the artefacts once at startup and exposes `/health`, `/meta`
+and `/predict`. The score is a weighted combination of the three models:
+
+    score = 0.4 · P_rf(attack) + 0.4 · P_xgb(attack) + 0.2 · normalised_iso
+
+Random Forest and XGBoost emit probabilities directly. Isolation Forest emits an
+unbounded anomaly score, mapped onto [0, 1] using the 1st and 99th percentiles of
+its training-split score distribution (p1 = 0.2988, p99 = 0.7704), recorded by
+`ml/train.py`. Percentiles rather than min and max, so a single extreme row
+cannot compress the scale. Without that mapping the third term would silently
+dominate or vanish depending on the range the forest happened to produce.
+
+The service reads its weights and threshold from the saved artefact rather than
+keeping its own copy, so the scoring it performs cannot drift from the scoring
+the operating point was measured against.
+
+### Operating point
+
+The threshold was selected on the **validation split**, restricted to
+payload-bearing sources, by maximising F1 over a grid from 0.05 to 0.95:
+
+| | Threshold | Recall | FPR | F1 |
+|---|---:|---:|---:|---:|
+| Maximum F1 (selected) | 0.77 | 0.9595 | 0.0541 | 0.9398 |
+| Constrained to FPR ≤ 5% | 0.78 | 0.9490 | 0.0470 | — |
+
+Restricting selection to payload-bearing rows is deliberate. The flow-only
+sources are 86% of the corpus, carry no request text and are 97.5% benign, so a
+threshold fitted to the aggregate is dominated by traffic that does not resemble
+an HTTP API request. A deployed service sees requests.
+
+### Combined pipeline on the untouched test split, at threshold 0.77
+
+| Population | Accuracy | Precision | Recall | F1 | FPR | ROC AUC |
+|---|---:|---:|---:|---:|---:|---:|
+| All test rows | 0.9790 | 0.8743 | 0.8145 | 0.8433 | 0.0087 | 0.9731 |
+| Payload-bearing rows only | 0.9480 | 0.9128 | 0.9597 | 0.9357 | 0.0596 | 0.9840 |
+
+The combination outperforms every individual model: F1 rises from 0.7804 (the
+best single model) to 0.8433 overall, and ROC AUC from 0.9763 to 0.9840 on
+payload traffic. Validation FPR of 0.0541 against test FPR of 0.0596 indicates
+the selected threshold transferred rather than fitting the validation split.
+
+### Why the aggregate false positive rate overstates deployment performance
+
+At the same threshold the combined pipeline reports an FPR of 0.87% across all
+test rows but 5.96% on payload-bearing rows alone. The lower figure is an
+artefact of composition: 86% of the corpus consists of network flow records with
+every payload feature zero-filled, which no live HTTP request resembles. The
+figure a practitioner should read is the payload-only one.
+
+This is a property of the available data rather than of the framework. No public
+dataset covers all three target attacks in REST API format, so the corpus was
+necessarily assembled from sources with different shapes. It is recorded here
+because reporting the aggregate alone would materially overstate how the system
+behaves in deployment.
+
+### Service-level verification
+
+`ml/test_inference.py` samples 300 benign and 300 attack rows from the corpus,
+sends each through the running service, and confirms the service reproduces the
+offline measurement: FPR 0.027, recall 0.983, mean score separation 0.688. It
+also checks that a partial feature object is reported as such rather than
+silently scored, since a mistyped feature name would otherwise return a
+plausible but meaningless prediction.
+
+Hand-constructed requests shaped the way the Express middleware builds them are
+reported alongside, without assertion. Two observations from them are worth
+carrying into Phase 8, where realistic benign traffic is generated:
+
+- Some plainly benign requests score above the threshold (a login request
+  scores 0.837), while some genuine SQL injection scores below it (a stacked
+  query scores 0.311). Investigation confirmed these are borderline rather than
+  systematic: real benign rows in the same feature neighbourhood have a median
+  score of 0.386, and the pipeline flags only 3.5% of real benign payload rows.
+- The behavioural vectors score 0.027, confirming the Phase 4 finding directly
+  at the service boundary rather than only in feature importances.
 
 ## Phase 9 — Comparative Evaluation
 

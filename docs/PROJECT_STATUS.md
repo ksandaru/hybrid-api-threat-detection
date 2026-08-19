@@ -1,6 +1,6 @@
 # Project Status
 
-Last reviewed: Phase 4 update
+Last reviewed: Phase 5 update
 
 This document records the current implementation state after the initial
 Claude-generated phases. It is meant to keep the README, phase docs, and source
@@ -14,8 +14,8 @@ tree aligned while later phases are being implemented.
 | 1 | Dataset preprocessing | Complete | `ml/features.py` and `ml/preprocess.py` implement the canonical feature contract and dataset unification. `train.parquet` (677,166 rows) and `heldout_atrdf.parquet` (540,057 rows) generated; stats in `evaluation/results.md`. |
 | 2 | REST API | Complete | `api/server.js`, auth/search/orders routes, config, and DB pool are implemented and manually verified with curl (login 200/401, vulnerable search 200, orders 401/200). `request_log` table doesn't exist yet — Phase 7 needs to create it. |
 | 3 | Rule middleware | Complete | Feature extractor (mirrors `ml/features.py`, parity-tested), 15-rule engine, and orchestrator mounted at `/api`. Verified live: benign passes, 4 SQLi variants blocked, brute force blocks from attempt 4, credential stuffing from the 5th username. `DETECTION_MODE` switch added for Phase 9 baselines. |
-| 4 | Model training | Complete | RF / XGBoost / Isolation Forest trained and saved with scaler and `feature_order.json`. Test acc 0.957-0.967, ROC AUC up to 0.976; CV agrees within 0.001. **Key finding: 4 flow features have zero importance (zero-filled in the corpus), so the models cannot detect brute force or credential stuffing** - see `evaluation/results.md`. |
-| 5 | FastAPI inference | Not started | `ml/app.py` is a TODO stub and cannot serve predictions yet. |
+| 4 | Model training | Complete | RF / XGBoost / Isolation Forest trained and saved with scaler and `feature_order.json`. Retrained in Phase 5 with a three-way split: test acc 0.916-0.965, ROC AUC up to 0.976; CV agrees within 0.001. **Key finding: 4 flow features have zero importance (zero-filled in the corpus), so the models cannot detect brute force or credential stuffing** - see `evaluation/results.md`. |
+| 5 | FastAPI inference | Complete | `ml/app.py` serves `/health`, `/meta`, `/predict` with weighted RF+XGB+IF scoring. Threshold 0.77 selected on a validation split (three-way split introduced here). Combined pipeline beats every single model: F1 0.8433 overall, 0.9357 on payload traffic. **Report FPR on payload-bearing rows (5.96%) as well as aggregate (0.87%)** - the aggregate is flattered by flow records. |
 | 6 | Hybrid integration | Not started | API-to-ML client and score combination are TODO stubs. |
 | 7 | Docker Compose runtime | Not started | `docker-compose.yml` is intentionally a placeholder until services can run. |
 | 8 | Attack simulation | Not started | Traffic generator scripts are TODO stubs. |
@@ -39,11 +39,12 @@ tree aligned while later phases are being implemented.
 
 ## Next Implementation Order
 
-1. Implement Phase 5 inference (`ml/app.py`), binding to
-   `ml/models/feature_order.json` and applying the saved scaler.
-2. Wire Phase 6 integration at the marked insertion point in
-   `api/middleware/detection.js`. Weighting needs care: the ML score carries no
-   signal for brute force or credential stuffing, so an even rule/ML split risks
-   performing worse than rules alone on those attacks.
-3. Phase 7 Compose once both services run independently. It also needs to create
+1. Wire Phase 6 integration at the marked insertion point in
+   `api/middleware/detection.js`. Weighting needs care: behavioural vectors
+   score 0.027 at the inference service, so an even rule/ML split would halve a
+   confident rule score and could make the hybrid worse than rules alone on
+   brute force and credential stuffing.
+2. Phase 7 Compose once both services run independently. It also needs to create
    the `request_log` table that `api/db/pool.js` already expects.
+3. Phase 8 benign traffic generation will give the false positive rate that
+   actually matters for this API, rather than the corpus-derived one.

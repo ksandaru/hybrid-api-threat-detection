@@ -17,5 +17,27 @@
     "inter_arrival_time_variance",
     "distinct_usernames_tried",
     "unique_ip_count_window"
-  ]
+  ],
+  "iso_calibration": {
+    "p1": 0.29876057506689335,
+    "p99": 0.7703985447716953,
+    "median": 0.29876057506689335
+  },
+  "operating_point": {
+    "weights": {
+      "random_forest": 0.4,
+      "xgboost": 0.4,
+      "isolation_forest": 0.2
+    },
+    "threshold_max_f1": 0.77,
+    "threshold_fpr_5pct": 0.78,
+    "selected_threshold": 0.77,
+    "selected_on": "validation split, payload-bearing sources",
+    "validation_at_selected": {
+      "recall": 0.9594533029612756,
+      "precision": 0.9208570179274158,
+      "fpr": 0.05414298534250673,
+      "f1": 0.9397590361445785
+    }
+  }
 }

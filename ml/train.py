@@ -61,6 +61,14 @@ RESULTS = ROOT / "evaluation" / "results.md"
 
 SEED = 42
 
+# Weights for the combined score. ml/app.py reads these back from the saved
+# artefact rather than keeping its own copy, so the two cannot drift apart.
+W_RF, W_XGB, W_ISO = 0.4, 0.4, 0.2
+
+# Sources whose rows carry request text. The flow-only sources have every
+# payload feature zero-filled and do not resemble live API traffic.
+PAYLOAD_SOURCES = ("kaggle_sqliv3", "csic_2010")
+
 
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -130,16 +138,27 @@ def main():
     log(f"class balance benign={counts[0]:,} attack={counts[1]:,} "
         f"ratio={counts[0] / max(counts[1], 1):.1f}:1")
 
-    # 1. split first
+    # 1. split first, three ways.
+    #
+    # The validation split exists so the decision threshold can be chosen on
+    # data the models did not fit, without touching the test split. Selecting an
+    # operating point on the test split would make the reported test metrics
+    # optimistic, because the threshold would have been tuned to them.
     idx = np.arange(len(y))
-    itr, ite = train_test_split(idx, test_size=0.2, stratify=y, random_state=SEED)
-    X_tr, X_te, y_tr, y_te = X[itr], X[ite], y[itr], y[ite]
-    src_te = source[ite]
-    log(f"split train={len(y_tr):,} test={len(y_te):,}")
+    ifit, ite = train_test_split(idx, test_size=0.2, stratify=y, random_state=SEED)
+    itr, iva = train_test_split(
+        ifit, test_size=0.15, stratify=y[ifit], random_state=SEED
+    )
+    X_tr, X_va, X_te = X[itr], X[iva], X[ite]
+    y_tr, y_va, y_te = y[itr], y[iva], y[ite]
+    src_va, src_te = source[iva], source[ite]
+    log(f"split train={len(y_tr):,} val={len(y_va):,} test={len(y_te):,}")
 
     # 2. scaler fitted on the training split only
     scaler = StandardScaler().fit(X_tr)
-    X_tr_s, X_te_s = scaler.transform(X_tr), scaler.transform(X_te)
+    X_tr_s = scaler.transform(X_tr)
+    X_va_s = scaler.transform(X_va)
+    X_te_s = scaler.transform(X_te)
 
     # 3. SMOTE on the training split only
     attack_ratio = y_tr.mean()
@@ -182,6 +201,20 @@ def main():
     ).fit(benign)
     iso_pred = (iso.predict(X_te_s) == -1).astype(int)
     iso_score = -iso.score_samples(X_te_s)  # higher = more anomalous
+
+    # Calibration bounds for the inference service. Isolation Forest emits an
+    # unbounded raw score, but the weighted combination in ml/app.py mixes it
+    # with two probabilities in [0, 1]. Percentiles of the training-split score
+    # distribution give a defensible mapping; p1/p99 rather than min/max so a
+    # single extreme row cannot compress the whole scale.
+    iso_train_scores = -iso.score_samples(X_tr_s)
+    iso_calibration = {
+        "p1": float(np.percentile(iso_train_scores, 1)),
+        "p99": float(np.percentile(iso_train_scores, 99)),
+        "median": float(np.median(iso_train_scores)),
+    }
+    log(f"  iso calibration p1={iso_calibration['p1']:.4f} "
+        f"p99={iso_calibration['p99']:.4f}")
     metrics["isolation_forest"] = binary_metrics(y_te, iso_pred, iso_score)
     log(f"  test  {fmt(metrics['isolation_forest'])}")
     models["isolation_forest"] = iso
@@ -208,6 +241,71 @@ def main():
             }
             log(f"  done in {time.time() - t0:.1f}s  " + "  ".join(
                 f"{k}={m:.4f}+/-{s:.4f}" for k, (m, s) in cv_results[name].items()))
+
+    # ---- operating point, selected on the validation split ----
+    #
+    # The service combines all three model outputs, so the threshold has to be
+    # chosen against that combination rather than against any single model.
+    def combined(Xs):
+        p_rf = models["random_forest"].predict_proba(Xs)[:, 1]
+        p_xgb = models["xgboost"].predict_proba(Xs)[:, 1]
+        raw = -models["isolation_forest"].score_samples(Xs)
+        span = max(iso_calibration["p99"] - iso_calibration["p1"], 1e-9)
+        p_iso = np.clip((raw - iso_calibration["p1"]) / span, 0, 1)
+        return W_RF * p_rf + W_XGB * p_xgb + W_ISO * p_iso
+
+    log("selecting operating point on the validation split")
+    s_va = combined(X_va_s)
+
+    # Selected on payload-bearing rows only. The flow-only sources are 86% of
+    # the corpus, carry no request text, and are 98% benign, so a threshold
+    # fitted to the aggregate is dominated by traffic that does not resemble an
+    # HTTP API request. The deployed service sees requests.
+    va_payload = np.isin(src_va, PAYLOAD_SOURCES)
+    grid = np.round(np.arange(0.05, 0.96, 0.01), 2)
+
+    def at(th, sc_, yy):
+        pred = (sc_ >= th).astype(int)
+        tp = int(((pred == 1) & (yy == 1)).sum())
+        fp = int(((pred == 1) & (yy == 0)).sum())
+        fn = int(((pred == 0) & (yy == 1)).sum())
+        tn = int(((pred == 0) & (yy == 0)).sum())
+        rec = tp / max(tp + fn, 1)
+        prec = tp / max(tp + fp, 1)
+        f1v = (2 * prec * rec / (prec + rec)) if (prec + rec) else 0.0
+        return {"recall": rec, "precision": prec, "fpr": fp / max(fp + tn, 1), "f1": f1v}
+
+    scored = [(float(t), at(t, s_va[va_payload], y_va[va_payload])) for t in grid]
+    best_f1 = max(scored, key=lambda kv: kv[1]["f1"])
+    under5 = [kv for kv in scored if kv[1]["fpr"] <= 0.05]
+    best_fpr5 = max(under5, key=lambda kv: kv[1]["recall"]) if under5 else best_f1
+
+    operating_point = {
+        "weights": {"random_forest": W_RF, "xgboost": W_XGB, "isolation_forest": W_ISO},
+        "threshold_max_f1": best_f1[0],
+        "threshold_fpr_5pct": best_fpr5[0],
+        "selected_threshold": best_f1[0],
+        "selected_on": "validation split, payload-bearing sources",
+        "validation_at_selected": best_f1[1],
+    }
+    log("  max-F1 threshold=%.2f  (val payload rec=%.3f fpr=%.3f f1=%.3f)" % (
+        best_f1[0], best_f1[1]["recall"], best_f1[1]["fpr"], best_f1[1]["f1"]))
+    log("  FPR<=5%% threshold=%.2f  (val payload rec=%.3f fpr=%.3f)" % (
+        best_fpr5[0], best_fpr5[1]["recall"], best_fpr5[1]["fpr"]))
+
+    # Report the combined pipeline on the untouched test split at that threshold.
+    s_te = combined(X_te_s)
+    te_payload = np.isin(src_te, PAYLOAD_SOURCES)
+    th = operating_point["selected_threshold"]
+    combined_metrics = {
+        "threshold": th,
+        "all_test_rows": binary_metrics(y_te, (s_te >= th).astype(int), s_te),
+        "payload_sources_only": binary_metrics(
+            y_te[te_payload], (s_te[te_payload] >= th).astype(int), s_te[te_payload]),
+    }
+    log("combined pipeline @ threshold %.2f" % th)
+    log("  all test rows        " + fmt(combined_metrics["all_test_rows"]))
+    log("  payload sources only " + fmt(combined_metrics["payload_sources_only"]))
 
     # ---- per-source breakdown on the test split ----
     # The corpus is assembled from sources with structurally different feature
@@ -244,7 +342,11 @@ def main():
         joblib.dump(model, MODEL_DIR / f"{name}.pkl")
     joblib.dump(scaler, MODEL_DIR / "scaler.pkl")
     (MODEL_DIR / "feature_order.json").write_text(
-        json.dumps({"feature_order": CANONICAL_FEATURE_ORDER}, indent=2), encoding="utf-8")
+        json.dumps({
+            "feature_order": CANONICAL_FEATURE_ORDER,
+            "iso_calibration": iso_calibration,
+            "operating_point": operating_point,
+        }, indent=2), encoding="utf-8")
 
     summary = {
         "corpus_shape": list(df.shape),
@@ -255,6 +357,9 @@ def main():
         "cv": cv_results,
         "per_source": per_source,
         "importances": importances,
+        "iso_calibration": iso_calibration,
+        "operating_point": operating_point,
+        "combined": combined_metrics,
     }
     (MODEL_DIR / "training_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8")
