@@ -5,5 +5,7 @@ module.exports = {
   mlServiceUrl: process.env.ML_SERVICE_URL || 'http://localhost:8000',
   databaseUrl: process.env.DATABASE_URL,
   detectionThreshold: parseFloat(process.env.DETECTION_THRESHOLD) || 0.7,
+  // off | rules | hybrid  (see api/middleware/detection.js)
+  detectionMode: process.env.DETECTION_MODE || 'rules',
   jwtSecret: process.env.JWT_SECRET || 'change-me-in-local-env',
 };
