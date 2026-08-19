@@ -2,7 +2,8 @@
 
 This file accumulates results across phases: dataset statistics (Phase 1),
 per-model training metrics (Phase 4), the inference service and combined
-scoring (Phase 5), and the full comparative evaluation (Phase 9). See `docs/phase-N-*/` for the what/why/how narrative behind each
+scoring (Phase 5), hybrid integration (Phase 6), and the full comparative
+evaluation (Phase 9). See `docs/phase-N-*/` for the what/why/how narrative behind each
 section below.
 
 ## Phase 1 — Dataset Statistics
@@ -273,6 +274,136 @@ carrying into Phase 8, where realistic benign traffic is generated:
   score of 0.386, and the pipeline flags only 3.5% of real benign payload rows.
 - The behavioural vectors score 0.027, confirming the Phase 4 finding directly
   at the service boundary rather than only in feature importances.
+
+## Phase 6 — Hybrid Integration
+
+The rule stage and the inference service are joined in
+`api/middleware/detection.js`, with the combination logic isolated in
+`api/middleware/scoreCombiner.js`. Verified by `api/test/hybridIntegration.js`,
+run once with the inference service up and once with it stopped.
+
+### Why the combination is not a weighted mean
+
+The specification suggests combining the two scores as a weighted mean. Phases 4
+and 5 measured why that fails here. The classifiers assign zero importance to
+four of the five flow features, so a brute-force vector scores 0.027 at the
+inference service. Under a weighted mean, a rule engine 0.90 confident of a
+brute-force attack would produce
+
+    0.5 × 0.90 + 0.5 × 0.027 = 0.46
+
+which is below the 0.7 block threshold. The ML term would not merely fail to
+help, it would cancel a correct detection, making the hybrid detect *less* than
+rules alone on two of the three target attacks.
+
+The default is a noisy-OR, the standard combination for independent evidence:
+
+    combined = 1 − (1 − rule) × (1 − ml)
+
+It is never below either input, so neither stage can cancel the other, and
+corroboration is rewarded: 0.5 and 0.5 combine to 0.75. Weighted mean, maximum
+and rules-only are also implemented and selectable via `COMBINE_STRATEGY`,
+because comparing them is a Phase 9 result rather than a decision to settle by
+argument.
+
+### A scale mismatch that had to be fixed first
+
+Combining the two scores raw was wrong. The rule score accumulates evidence
+weights; the ML score is a blend of three model outputs whose decision boundary
+was fitted on the validation split and sits at **0.77**, not 0.5. Feeding a raw
+ML score of 0.79 into a noisy-OR reads it as "79% confident" when it means
+"just over the line" — and because a noisy-OR never reduces a score, that alone
+cleared the 0.7 threshold and rejected legitimate traffic.
+
+The ML score is now mapped piecewise so its own boundary lands at 0.5: below the
+boundary compresses into [0, 0.5], above it into [0.5, 1]. A marginal verdict
+contributes marginal evidence. The boundary is discovered from the service's
+`/meta` endpoint rather than hard-coded, so the two cannot drift apart.
+
+Effect on the observed cases:
+
+| Case | Rule | ML raw | ML aligned | Combined | Blocks at 0.7 |
+|---|---:|---:|---:|---:|---|
+| Benign search | 0.00 | 0.790 | 0.543 | 0.543 | no |
+| Benign login | 0.00 | 0.837 | 0.646 | 0.646 | no |
+| Attack the rules miss | 0.50 | 0.996 | 0.991 | 0.996 | yes |
+| High-confidence ML | 0.00 | 0.990 | 0.978 | 0.978 | yes |
+
+### Results
+
+Both configurations pass all checks. The comparison between them is the result.
+
+| | Inference up (hybrid) | Inference down (rules only) |
+|---|---|---|
+| Added latency, p50 | 47.7 ms | 6.1 ms |
+| Added latency, p95 | 51.3 ms | 9.0 ms |
+| Benign false positive rate | **33.3%** (2 of 6) | **0.0%** (0 of 6) |
+| Rule-catchable attacks | all blocked | all blocked |
+| Attack the rules miss | **blocked at 0.96** | allowed |
+| Brute force | blocked | blocked from attempt 5 |
+
+The headline deliverable is met: `admin'-- DROP TABLE` scores 0.500 on rules
+alone, below the threshold, and is allowed. With the classifier consulted it
+scores 0.96 and is blocked. That is an attack the rules miss and the ML stage
+catches, which is the case the hybrid design exists to handle.
+
+Fail-open is met: with the inference service stopped, the API continues serving,
+rule-catchable attacks are still blocked, and only the ML-dependent detection is
+lost. A refused connection is detected in about 3 ms rather than waiting out the
+250 ms timeout, so the degraded path costs almost nothing. One warning is logged
+per outage and then every tenth failure, so an outage is visible without
+flooding the log.
+
+Behavioural detection is not weakened. A high-severity rule short-circuits before
+the inference call is made, so brute force and credential stuffing never reach
+the combination step and cannot be diluted by a near-zero ML score. This is the
+cascade design doing exactly what Section 2.3 describes, and it is also why the
+hybrid path costs nothing extra on the attacks it already catches: the union
+select case completes in 1.2 ms because the classifier is never consulted.
+
+### The cost: false positives
+
+The hybrid blocked 2 of 6 benign requests where rules alone blocked none. Both
+were ML false positives, not rule failures:
+
+- `usb-c hub` scored 0.816 combined
+- a valid login with an 18-character username scored 0.783
+
+The second is diagnostic rather than incidental. `payload_length` is the
+classifier's second most important feature, and the corpus associates length
+with attacks, so a login with a longer username scores higher purely because the
+request is longer. A short username passes where a long one does not. The model
+is using length as a proxy for maliciousness rather than reading the request.
+
+This traces directly to the corpus limitation recorded in Phase 5: 86% of the
+training rows are network flow records that resemble no HTTP request, and the
+payload-bearing rows that remain are 40% attacks, so any request carrying text
+starts from a high prior. The benign traffic in the corpus does not cover the
+shape of this API's own benign traffic.
+
+**The hybrid is therefore not yet deployable at this operating point.** Trading a
+33% false positive rate for one additional detected attack class is not a
+favourable exchange for an inline control. What is missing is representative
+benign traffic to calibrate against, which Phase 8 generates. The threshold
+should be re-selected on that traffic before the Phase 9 comparison is run, and
+the comparison should report the rule-only and hybrid false positive rates side
+by side rather than accuracy alone.
+
+### Latency
+
+The classifier adds roughly 41 ms at the median (47.7 ms against 6.1 ms), which
+is inside the 100 ms budget but is dominated by the Random Forest at about 16 ms
+per prediction. Requests rejected by a high-severity rule bypass the call
+entirely and complete in 1–3 ms. The measurement here is a single client on one
+machine and is not a load test; Phase 9 measures under generated traffic.
+
+The measurement is deliberately taken over eight requests on a clean sliding
+window. A single source exceeding 30 requests per minute trips `RATE_ELEVATED`,
+which contributes 0.4 to the rule score and, combined with a moderate ML score,
+blocks subsequent traffic. An earlier version of the check issued 25 probes and
+then measured a source the system had correctly flagged as bursty — which is a
+different quantity from benign latency, and is noted because the same trap
+applies to the Phase 9 harness.
 
 ## Phase 9 — Comparative Evaluation
 
