@@ -170,6 +170,31 @@ def main():
 
     # ---- supervised models ----
     specs = {
+        # Left unconstrained, and that is a measured choice rather than a
+        # default left in place.
+        #
+        # Grown to purity the forest reaches a mean depth of 58 and about
+        # 14,000 leaves per tree, producing a 230 MB artefact -- larger than the
+        # memory allowance of the small free container tiers. Constrained
+        # variants were fitted on the same split and scored through the full
+        # combined pipeline at a validation-selected threshold:
+        #
+        #   config                    payload F1   payload FPR   size
+        #   unconstrained                 0.9357        0.0596   230 MB
+        #   min_samples_leaf=5            0.8938        0.1060   104 MB
+        #   max_depth=20, leaf=10         0.8847        0.1306    34 MB
+        #   60 trees, depth 16, leaf=20   0.8788        0.1283     9 MB
+        #
+        # Every constraint roughly doubles the false positive rate on
+        # payload-bearing traffic. Notably ROC-AUC *improves* as the forest
+        # shrinks (0.9591 -> 0.9687), which is why an AUC-led choice picks the
+        # wrong model here: AUC averages over thresholds this system never
+        # operates at. The depth is holding genuine structure in the payload
+        # features, not memorising noise.
+        #
+        # The artefact size is therefore treated as a deployment constraint to
+        # be solved by hosting, not by degrading detection. See
+        # evaluation/results.md.
         "random_forest": RandomForestClassifier(
             n_estimators=100, random_state=SEED, n_jobs=-1
         ),
@@ -338,9 +363,16 @@ def main():
     }
 
     # ---- persist ----
+    #
+    # compress=3 rather than the default of none. The forest falls from 230 MB
+    # to 46 MB, and loading gets *faster* (3.5s to 1.7s) because reading 184 MB
+    # less from disk costs more time than zlib spends expanding it. There is no
+    # trade-off to weigh here: it is smaller, quicker to load, and identical
+    # once in memory. Resident size is unchanged, so this eases distribution,
+    # not the memory ceiling.
     for name, model in models.items():
-        joblib.dump(model, MODEL_DIR / f"{name}.pkl")
-    joblib.dump(scaler, MODEL_DIR / "scaler.pkl")
+        joblib.dump(model, MODEL_DIR / f"{name}.pkl", compress=3)
+    joblib.dump(scaler, MODEL_DIR / "scaler.pkl", compress=3)
     (MODEL_DIR / "feature_order.json").write_text(
         json.dumps({
             "feature_order": CANONICAL_FEATURE_ORDER,
