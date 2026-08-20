@@ -62,6 +62,27 @@ async function main() {
   // Fresh identity, so a previous run cannot leave this source inside a
   // behavioural window and block traffic that should pass.
   const user = `probe_${Date.now()}`;
+
+  // Refuse to run against a dirty sliding window.
+  //
+  // A fresh username is not enough: the behavioural features key on the source
+  // address, and every run of this script uses the same one. Run it twice
+  // without restarting the API and the second run starts with ~30 requests
+  // already inside the 60-second window, so the rate rules fire immediately and
+  // benign traffic is blocked. The failures then appear several checks later,
+  // as a detection defect rather than as leftover state, which is exactly how
+  // this cost an hour once already.
+  const pre = await http.get('/health');
+  const occupancy = (pre.data && pre.data.window) || {};
+  if ((occupancy.events || 0) > 0) {
+    console.log(`the API is holding ${occupancy.events} event(s) from ` +
+                `${occupancy.sources} source(s) in its 60s window.`);
+    console.log('Results would be meaningless. Either wait 60s or restart it:');
+    console.log('    docker compose restart api');
+    console.log();
+    process.exit(2);
+  }
+
   await http.post('/api/auth/register', { username: user, password: 'pass1234' });
 
   // Latency is measured first, on a clean sliding window, and kept to 25
@@ -89,7 +110,23 @@ async function main() {
   ms.sort((a, b) => a - b);
   const pct = (p) => ms[Math.min(ms.length - 1, Math.floor((p / 100) * ms.length))];
   console.log(`        n=${ms.length}  p50=${pct(50).toFixed(1)}ms  p95=${pct(95).toFixed(1)}ms  p99=${pct(99).toFixed(1)}ms`);
-  check('p95 within the 100ms budget', pct(95) < 100, true);
+  // NFR1 sets a 100 ms budget for added latency, and that is the figure to
+  // hold the system to while the inference service is reachable. With it down
+  // the number means something different: under Compose a stopped container
+  // does not refuse the connection, it swallows it, so every request waits out
+  // ML_TIMEOUT_MS in full before falling back to the rule verdict. Roughly
+  // 250 ms is then the expected, designed behaviour of the fail-open path --
+  // asserting 100 ms there fails the system for doing what NFR2 requires.
+  const timeoutMs = Number(process.env.ML_TIMEOUT_MS || 250);
+  const budget = EXPECT_ML ? 100 : timeoutMs + 100;
+  check(EXPECT_ML
+          ? 'p95 within the 100ms budget'
+          : `p95 within the degraded budget (${budget}ms = timeout + margin)`,
+        pct(95) < budget, true);
+  if (!EXPECT_ML) {
+    console.log('        note: degraded latency is dominated by ML_TIMEOUT_MS, ' +
+                'not by detection work');
+  }
 
   // Benign traffic is measured as a rate rather than asserted per request.
   // Phase 5 established that the classifier has a real false positive rate on

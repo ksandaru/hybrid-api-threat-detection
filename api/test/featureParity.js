@@ -15,8 +15,26 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 const { extractPayloadFeatures, PAYLOAD_FEATURES } = require('../middleware/featureExtractor');
 
+const fs = require('fs');
+
 const ROOT = path.resolve(__dirname, '..', '..');
-const PYTHON = path.join(ROOT, 'ml', 'venv', 'Scripts', 'python.exe');
+
+// The interpreter lives in a different place on Windows than on Linux, and in
+// a different place again inside the ml container. Resolve it rather than
+// hard-coding one layout, so this test can gate a commit from any of the three.
+function findPython() {
+  if (process.env.PYTHON) return process.env.PYTHON;
+  const candidates = [
+    path.join(ROOT, 'ml', 'venv', 'Scripts', 'python.exe'),
+    path.join(ROOT, 'ml', 'venv', 'bin', 'python'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+const PYTHON = findPython();
 
 // Cases chosen to exercise the places a naive port diverges: empty input,
 // overlapping separators, comment syntax, word-boundary keyword matching,

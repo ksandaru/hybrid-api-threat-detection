@@ -184,16 +184,15 @@ ahead of the classifier, it is the only stage carrying signal.
 
 | Model | p50 | p95 | p99 | Artefact | Load |
 |---|---:|---:|---:|---:|---:|
-| Random Forest | 16.01 ms | 26.04 ms | 27.28 ms | 259 MB | 1.77 s |
+| Random Forest | 16.01 ms | 26.04 ms | 27.28 ms | 230 MB | 1.77 s |
 | XGBoost | 0.26 ms | 0.57 ms | 0.92 ms | 279 KB | 0.03 s |
 | Isolation Forest | 5.11 ms | 6.60 ms | 7.27 ms | 500 KB | 0.03 s |
 
 Random Forest costs roughly sixty times more per prediction than XGBoost while
-scoring lower on ROC AUC, and its trees were grown without depth constraint on
-the resampled training set, which is what produces the 259 MB artefact.
-Constraining its depth is the obvious lever if the Phase 9 end-to-end
-measurement comes under pressure; it has not been applied, because retraining
-would invalidate the figures above for no present benefit.
+scoring lower on ROC AUC, and its trees are grown without depth constraint on
+the resampled training set, which is what produces the 230 MB artefact. That
+size was later tested directly rather than assumed to be waste - see
+"Model size: a constraint that was measured, not assumed" below.
 
 ## Phase 5 — Inference Service and Combined Scoring
 
@@ -404,6 +403,86 @@ blocks subsequent traffic. An earlier version of the check issued 25 probes and
 then measured a source the system had correctly flagged as bursty — which is a
 different quantity from benign latency, and is noted because the same trap
 applies to the Phase 9 harness.
+
+## Model size: a constraint that was measured, not assumed
+
+The 230 MB Random Forest is an obstacle to deploying this system anywhere except
+the machine it was trained on: the small free container tiers allow 256-512 MB
+of memory in total, so the artefact alone exhausts the budget before the Python
+process starts. The obvious response is to bound the trees. It was tried,
+measured, and rejected.
+
+Constrained variants were fitted on the identical split, scaling and resampling,
+then scored through the **full combined pipeline** at a threshold re-selected on
+the validation split, because that is what the system actually deploys:
+
+| Random Forest configuration | Threshold | Payload F1 | Payload FPR | All-rows F1 | Artefact |
+|---|---:|---:|---:|---:|---:|
+| **Unconstrained (retained)** | 0.77 | **0.9357** | **0.0596** | **0.8433** | 230 MB |
+| `min_samples_leaf=5` | 0.79 | 0.8938 | 0.1060 | 0.7816 | 104 MB |
+| `min_samples_leaf=10` | 0.76 | 0.8898 | 0.1225 | 0.8005 | 68 MB |
+| `max_depth=24, leaf=5` | 0.76 | 0.8890 | 0.1243 | 0.8032 | 66 MB |
+| `min_samples_leaf=20` | 0.74 | 0.8840 | 0.1328 | 0.8089 | 39 MB |
+| `max_depth=20, leaf=10` | 0.75 | 0.8847 | 0.1306 | 0.8081 | 34 MB |
+| `60 trees, depth 16, leaf=20` | 0.77 | 0.8788 | 0.1283 | 0.7771 | 9 MB |
+
+Every constraint costs roughly five points of F1 on payload-bearing traffic and
+**roughly doubles the false positive rate**, from 0.0596 to between 0.106 and
+0.133. A high false positive rate is already this system's weakest result, so
+paying more of it to save disk space is the wrong trade.
+
+There is a methodological point here worth keeping. Judged on ROC AUC the
+conclusion inverts: AUC *improves* as the forest shrinks, from 0.9591
+unconstrained to 0.9687 for the smallest variant. An AUC-led selection would
+have chosen the 9 MB model and quietly doubled the false positive rate. AUC
+averages performance over every possible threshold, including regions this
+system never operates in, whereas the deployed configuration uses exactly one
+threshold, chosen on validation data. **A model selection metric that ignores
+the operating point can rank a worse deployment above a better one.** The first
+attempt at this change did exactly that, and it was caught only because the
+combined-pipeline figures were re-checked after retraining.
+
+The depth is therefore not waste. With 17 features and many near-duplicate
+payload rows, the deep leaves separate benign from malicious patterns that
+shallower trees blur together.
+
+### Solving the size without touching the model
+
+Persisting with `joblib.dump(..., compress=3)` instead of the default:
+
+| | Artefact | Load time |
+|---|---:|---:|
+| Uncompressed | 229.8 MB | 3.5 s |
+| `compress=3` | **45.6 MB** | **1.7 s** |
+| `compress=6` | 42.2 MB | 1.5 s |
+
+Smaller *and* faster to load, because reading 184 MB less from disk costs more
+time than zlib spends expanding it. Level 3 is used; level 6 saves a further
+3 MB for two and a half times the write cost. Predictions are bit-identical -
+this changes distribution, not the model. The whole `ml/models/` directory is
+now **45.9 MB**, and the inference container reaches its healthy state in about
+16 seconds rather than the 40 seconds the Phase 7 health check allows for.
+
+Resident memory is unchanged at roughly 260 MB. The deployment consequence is
+that this system needs a host offering about 1 GB, not one of the 256 MB tiers -
+a hosting decision rather than a modelling one.
+
+## Hardening pass across Phases 0-7
+
+Applied after Phase 7, before the attack simulation. Detection behaviour is
+unchanged: all Phase 6 integration checks still pass in both normal and degraded
+modes, and the feature parity test still reports 240 comparisons with no
+divergence.
+
+| Defect | Consequence | Fix |
+|---|---|---|
+| Sliding-window map entries were never removed once their event list emptied | One dead key per source address ever seen. Phase 8 generates traffic from many distinct sources, so this grows without bound | `sweep()` on an unref'd 60 s timer evicts empty entries; verified evicting 500 stale sources |
+| No SIGTERM or SIGINT handler | `docker compose stop` killed the process outright, dropping in-flight requests and any `request_log` write in progress, then waited out the full 10 s grace before SIGKILL | Drain in-flight connections, close the Postgres pool, stop the timer. Verified in-container: exit code 0 after 1 s |
+| `.env.example` documented 5 of 11 configuration variables | The six controlling detection behaviour - mode, strategy, weights, timeout, trace - were discoverable only by reading source | All documented, with defaults and the reasoning behind each |
+| No test entry points in `package.json` | Tests were runnable only by knowing their paths | `npm test`, `test:parity`, `test:integration`, `test:integration:degraded` |
+| The parity test hard-coded a Windows interpreter path | Could not gate a commit from Linux or inside the container | Resolves the interpreter across layouts, with a `PYTHON` override |
+| The integration test produced false failures on a second run | The behavioural window keys on source address, which does not change between runs. A rerun without restarting begins about 28 events into the 60 s window, the rate rules fire, and the failures surface several checks later as apparent detection defects | `/health` reports window occupancy (counts only, never addresses); the test refuses to run against a dirty window and states how to clear it |
+| The integration test asserted the 100 ms latency budget in degraded mode | Under Compose a stopped container swallows connections rather than refusing them, so the fail-open path waits out `ML_TIMEOUT_MS` in full. The test failed the system for correctly honouring NFR2 | The budget is now mode-aware: 100 ms with inference reachable, timeout plus margin without |
 
 ## Phase 9 — Comparative Evaluation
 

@@ -148,6 +148,35 @@ function prune(list, now) {
   return list;
 }
 
+/**
+ * Drop map entries whose event lists have emptied.
+ *
+ * Pruning only happens for a source when that source is next seen, so a source
+ * that sends a burst and never returns leaves an empty array behind forever.
+ * One stale key is trivial; one per source address is a leak, and the Phase 8
+ * attack simulation deliberately generates traffic from many distinct sources.
+ *
+ * Runs on a timer rather than on every request so the cost is not paid on the
+ * request path. The handle is unref'd so it cannot hold the process open at
+ * shutdown.
+ */
+function sweep(now = Date.now()) {
+  let removed = 0;
+  for (const [ip, events] of ipEvents) {
+    if (prune(events, now).length === 0) {
+      ipEvents.delete(ip);
+      removed += 1;
+    }
+  }
+  for (const [path, seen] of endpointEvents) {
+    if (prune(seen, now).length === 0) endpointEvents.delete(path);
+  }
+  return removed;
+}
+
+const sweepTimer = setInterval(() => sweep(), WINDOW_MS);
+if (typeof sweepTimer.unref === 'function') sweepTimer.unref();
+
 function recordRequest(ip, path, username, now = Date.now()) {
   if (!ipEvents.has(ip)) ipEvents.set(ip, []);
   const events = prune(ipEvents.get(ip), now);
@@ -257,6 +286,17 @@ function resetStore() {
   endpointEvents.clear();
 }
 
+/** Sizes of the in-memory window, for the /health endpoint and for tests. */
+function storeStats() {
+  let events = 0;
+  for (const list of ipEvents.values()) events += list.length;
+  return { sources: ipEvents.size, endpoints: endpointEvents.size, events };
+}
+
+function stopSweep() {
+  clearInterval(sweepTimer);
+}
+
 module.exports = {
   PAYLOAD_FEATURES,
   FLOW_FEATURES,
@@ -273,4 +313,7 @@ module.exports = {
   extractFeatures,
   toVector,
   resetStore,
+  sweep,
+  storeStats,
+  stopSweep,
 };

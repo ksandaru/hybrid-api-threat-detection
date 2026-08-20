@@ -1,7 +1,19 @@
-### Health check
+### Manual request book for the API.
+###
+### Expected responses below assume the stack is running with the Compose
+### defaults (DETECTION_MODE=hybrid, DETECTION_THRESHOLD=0.7). Set
+### DETECTION_MODE=off to exercise the routes with detection out of the way.
+###
+### One caveat that will otherwise look like a bug: the behavioural features
+### keep a 60-second sliding window per source address. Sending more than 30
+### requests from here inside a minute trips RATE_ELEVATED and everything after
+### that is blocked -- correctly. Check GET /health if traffic starts being
+### rejected for no visible reason; it reports how many events the window holds.
+
+### Health check, and current sliding-window occupancy
 GET http://localhost:3000/health
 
-### Register a user
+### Register a user (expect 201)
 POST http://localhost:3000/api/auth/register
 Content-Type: application/json
 
@@ -10,7 +22,7 @@ Content-Type: application/json
   "password": "correct-horse-battery-staple"
 }
 
-### Login — correct password (expect 200 + token)
+### Login - correct password (expect 200 + token)
 POST http://localhost:3000/api/auth/login
 Content-Type: application/json
 
@@ -19,7 +31,11 @@ Content-Type: application/json
   "password": "correct-horse-battery-staple"
 }
 
-### Login — wrong password (expect 401)
+### Login - wrong password (expect 401)
+###
+### The same 401 is returned for an unknown username. That is deliberate: a
+### distinguishable response would let an attacker enumerate valid accounts,
+### which is the first half of the credential-stuffing attack under study.
 POST http://localhost:3000/api/auth/login
 Content-Type: application/json
 
@@ -31,12 +47,28 @@ Content-Type: application/json
 ### Benign search (expect 200)
 GET http://localhost:3000/api/search/vulnerable?q=laptop
 
-### SQLi payload against the vulnerable endpoint (still expect 200 — no
-### detection middleware exists yet until Phase 3; this endpoint just
-### reflects the constructed query for inspection)
+### SQLi payload, tautology (expect 403)
+###
+### Blocked by SQLI_TAUTOLOGY_CONFIRMED before the handler runs. The endpoint
+### behind it builds an unsanitised query by concatenation and returns it for
+### inspection, but never executes it -- a realistic attack surface without a
+### genuinely exploitable target.
 GET http://localhost:3000/api/search/vulnerable?q=' OR '1'='1
 
-### Same SQLi payload against the secure endpoint (expect 200, no match)
+### SQLi payload, UNION SELECT (expect 403)
+GET http://localhost:3000/api/search/vulnerable?q=' UNION SELECT username, password FROM users --
+
+### The case the rules alone do not catch (expect 403 in hybrid mode,
+### 200 in rules mode)
+###
+### Scores 0.5 on rules, below the 0.7 threshold. The classifier carries it
+### over the line, which is the case that justifies the hybrid design.
+GET http://localhost:3000/api/search/vulnerable?q=admin'-- DROP TABLE orders
+
+### Same tautology against the parameterised endpoint (expect 403)
+###
+### Still blocked: detection runs ahead of the route, so it does not matter
+### that this handler would have been safe.
 GET http://localhost:3000/api/search/secure?q=' OR '1'='1
 
 ### Protected resource without a token (expect 401)
@@ -46,3 +78,9 @@ GET http://localhost:3000/api/orders/123
 ### login response above; expect 200)
 GET http://localhost:3000/api/orders/123
 Authorization: Bearer TOKEN
+
+### Explain a decision (expect 200, with a per-rule breakdown)
+###
+### Only populated when DETECTION_TRACE=1. It discloses detection logic to the
+### caller, so it is a diagnostic aid rather than something to leave enabled.
+GET http://localhost:3000/api/search/vulnerable?q=' OR '1'='1

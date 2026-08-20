@@ -6,7 +6,11 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "npm run test:parity",
+    "test:parity": "node test/featureParity.js",
+    "test:integration": "node test/hybridIntegration.js",
+    "test:integration:degraded": "node test/hybridIntegration.js --no-ml"
   },
   "dependencies": {
     "axios": "^1.7.7",
