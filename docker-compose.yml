@@ -74,6 +74,9 @@ services:
       COMBINE_STRATEGY: ${COMBINE_STRATEGY:-noisy_or}
       ML_TIMEOUT_MS: ${ML_TIMEOUT_MS:-250}
       DETECTION_TRACE: ${DETECTION_TRACE:-0}
+      # Off unless the Phase 8 harness needs distinct simulated sources.
+      # See api/config/index.js for why this is not a safe default.
+      TRUST_PROXY: ${TRUST_PROXY:-0}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-local-env}
     depends_on:
       ml:

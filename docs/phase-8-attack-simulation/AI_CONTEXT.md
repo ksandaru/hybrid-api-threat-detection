@@ -36,4 +36,10 @@ data.
 
 ## Status
 
-**Not started.**
+**Complete.** Four generators, a sequenced runner, and a recalibration tool.
+The benign traffic recalibrated the detection strategy and exposed the Phase 6
+false-positive blocker as an auth-endpoint problem: the payload classifier
+scored credential bodies as attacks. Fixed by scoping ML to payload-bearing
+endpoints (`config.mlPayloadPaths`). Benign FPR 17.5% -> 1.8%, SQLi still 100%,
+behavioural attacks now caught by the rules at attempt/username 5 rather than by
+the ML artefact at 1. See IMPLEMENTATION.md.

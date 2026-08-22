@@ -40,6 +40,9 @@ ml/models/*
 !ml/models/feature_order.json
 evaluation/figures/*
 !evaluation/figures/.gitkeep
+# Generated traffic runs (reproducible from fixed seeds; carry run timestamps)
+evaluation/traffic/*
+!evaluation/traffic/.gitkeep
 
 # Logs, OS, and editor noise
 *.log

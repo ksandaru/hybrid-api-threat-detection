@@ -65,10 +65,26 @@ async function detectionMiddleware(req, res, next) {
   let ml = null;
   let mlBoundary = null;
 
-  // A high-severity rule short-circuits. The verdict is already certain and the
-  // classifier cannot overturn it, so paying for the call would buy nothing.
-  // This early exit is what keeps the cascade cheap.
-  const needsMl = mode === 'hybrid' && !rules.blocked;
+  // The classifier is consulted only when three things hold:
+  //   - we are in hybrid mode
+  //   - no high-severity rule has already fired (its verdict is certain, and
+  //     the classifier cannot overturn it, so the call would buy nothing -- the
+  //     short-circuit is what keeps the cascade cheap)
+  //   - the request targets a payload-bearing endpoint
+  //
+  // The last condition is why benign logins are no longer blocked. The payload
+  // model has signal on a search query and none on a credential body; applied
+  // to auth it produced a ~17% false positive rate on ordinary logins while
+  // adding nothing, because brute force and credential stuffing are caught
+  // behaviourally by the rule stage. See config.mlPayloadPaths.
+  // originalUrl, not req.path: this middleware is mounted at '/api', so by the
+  // time it runs Express has already stripped that prefix from req.path
+  // (req.path is '/search/vulnerable', not '/api/search/vulnerable').
+  // originalUrl keeps the full path, so the configured prefixes read naturally.
+  const targetPath = req.originalUrl || req.path || '';
+  const payloadBearing = config.mlPayloadPaths.some((prefix) =>
+    targetPath.startsWith(prefix));
+  const needsMl = mode === 'hybrid' && !rules.blocked && payloadBearing;
   if (needsMl) {
     ml = await mlClient.predict(features);
     if (ml.ok) {
@@ -97,6 +113,19 @@ async function detectionMiddleware(req, res, next) {
     strategy: combined.strategy,
     decision,
   };
+
+  // Under trace, attach the scores to every inspected response, allowed ones
+  // included. A 403 already carries its score in the body, but an allowed
+  // request discards it, and that is precisely the number threshold
+  // recalibration needs: what combined score did benign traffic receive. Set
+  // here, before the response is sent, because res.on('finish') is too late to
+  // add a header. Trace-gated, so normal responses do not disclose the score.
+  if (process.env.DETECTION_TRACE === '1' && !res.headersSent) {
+    res.set('X-Detection-Score', combined.score.toFixed(4));
+    res.set('X-Detection-Rule-Score', rules.ruleScore.toFixed(4));
+    if (mlScore != null) res.set('X-Detection-Ml-Score', mlScore.toFixed(4));
+    res.set('X-Detection-Decision', decision);
+  }
 
   res.on('finish', () => {
     // Use the path captured at entry, not req.path. Express rewrites req.url as

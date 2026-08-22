@@ -12,6 +12,16 @@ const { pool } = require('./db/pool');
 
 const app = express();
 
+// See config/index.js for why this is opt-in and why the default matters.
+// Logged loudly because a detection system that trusts a spoofable source
+// header should never do so silently.
+if (config.trustProxy) {
+  app.set('trust proxy', true);
+  console.warn('[config] TRUST_PROXY=1: X-Forwarded-For is trusted as the ' +
+               'request source. Intended for the Phase 8 simulation harness ' +
+               'only -- behavioural detection is bypassable in this mode.');
+}
+
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());

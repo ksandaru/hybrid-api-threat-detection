@@ -484,6 +484,88 @@ divergence.
 | The integration test produced false failures on a second run | The behavioural window keys on source address, which does not change between runs. A rerun without restarting begins about 28 events into the 60 s window, the rate rules fire, and the failures surface several checks later as apparent detection defects | `/health` reports window occupancy (counts only, never addresses); the test refuses to run against a dirty window and states how to clear it |
 | The integration test asserted the 100 ms latency budget in degraded mode | Under Compose a stopped container swallows connections rather than refusing them, so the fail-open path waits out `ML_TIMEOUT_MS` in full. The test failed the system for correctly honouring NFR2 | The budget is now mode-aware: 100 ms with inference reachable, timeout plus margin without |
 
+## Phase 8 - Attack Simulation and Threshold Recalibration
+
+Four traffic generators (`attack-sim/`) send labelled attack and benign traffic
+to the local API, each request recording the score the pipeline assigned it.
+Each simulated client presents a distinct synthetic source address (RFC 5737
+documentation range) so the behavioural features do not collapse the whole
+harness into a single source; the API honours this only under `TRUST_PROXY=1`.
+Per-request scores are captured from response trace headers under
+`DETECTION_TRACE=1`, which is what makes the false positive rate not just
+measurable but movable.
+
+### What the benign traffic exposed
+
+The generators reproduced the Phase 6 blocker with a precise diagnosis. Against
+the hybrid pipeline the benign false positive rate was **17.5%**, and it was not
+spread across the traffic - it concentrated on the authentication endpoints:
+
+| Endpoint | Benign requests | Scoring >= 0.80 |
+|---|---:|---:|
+| `/api/auth/*` | 25 | 21 |
+| `/api/orders/*` | 32 | 0 |
+| `/api/search/*` | 64 | 1 |
+
+The rule stage never false-fired (rule score 0.0 throughout, matching the 0% for
+rules alone). The ML term was the cause: the payload classifier scored
+credential POST bodies (`username=...&password=...`, high entropy, dense special
+characters) at around 0.92, because that shape resembles the SQLi payloads it
+was trained on far more than it resembles benign GET-search traffic.
+
+A second symptom confirmed it. Brute force was blocked at the *first* attempt -
+which cannot be real behavioural detection, since one failed login is
+indistinguishable from a typo. The early block was the same ML mis-scoring of
+the login body. The inflated attack recall and the benign false positives were
+one bug seen twice.
+
+### The fix, and why not the threshold
+
+Threshold tuning could not resolve this. The curve shows benign FPR only reaching
+an acceptable level at 0.85, where the ML term simultaneously stops catching the
+SQLi the rules miss (recall 99% -> 83%): the benign auth scores sit on top of the
+ML-only attack scores, leaving no clean cut.
+
+The classifier's features - SQL keyword count, `UNION SELECT`, quote and comment
+counts - describe a free-text query and are meaningless for a credential body.
+The attacks that target auth (brute force, credential stuffing) are behavioural
+and caught by the rate, failure-ratio and distinct-username rules, which need no
+payload model. So the ML call was scoped to payload-bearing endpoints
+(`config.mlPayloadPaths`, default `/api/search`); everywhere else the verdict is
+the rule stage alone.
+
+### Result
+
+| Metric | Before | After |
+|---|---:|---:|
+| Benign false positive rate | 17.5% | **1.8%** |
+| SQLi detection | 100% | 100% |
+| Brute force | blocked at attempt 1 (ML artefact) | blocked at attempt 5 (failure-ratio rule) |
+| Credential stuffing | blocked at username 1 (ML artefact) | blocked at username 5 (distinct-username rule) |
+
+Attack recall at threshold 0.7 is **91.7%**, down from the earlier inflated 99%,
+and that lower figure is the honest one: the first few brute-force attempts
+genuinely cannot be distinguished from mistyped passwords, and counting them as
+missed detections is correct. The two remaining benign false positives are
+ambiguous searches - `usb-c hub` and `logitech's mx master` - where a dash or
+apostrophe produces a real SQLi-like signal.
+
+The recalibration (`evaluation/threshold_recalibration.md`) recommends 0.8 as a
+further refinement (FPR 1.7%, recall 90.6%). It has not been applied: the scoping
+fix alone cleared the blocker, and whether to also move the boundary is left for
+the Phase 9 comparison to decide across all four configurations.
+
+### Detection by attack type (threshold 0.7, after the fix)
+
+| Attack type | Detected / total |
+|---|---:|
+| sqli (all six families) | 26/26 |
+| brute_force | 26/30 |
+| credential_stuffing | 38/46 |
+
+The behavioural numbers are below 100% by design: attempts before the rule's
+detection threshold is reached are, correctly, not blocked.
+
 ## Phase 9 — Comparative Evaluation
 
 Not yet started.
