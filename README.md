@@ -6,7 +6,7 @@ brute force, and credential stuffing attacks in real time.
 
 ## Current Status
 
-This repository is in early-to-mid implementation.
+This repository is in mid-to-late implementation.
 
 - Phase 0 scaffolding is present.
 - Phase 1 dataset preprocessing and the canonical ML feature contract are
@@ -15,14 +15,20 @@ This repository is in early-to-mid implementation.
   training, Phase 5 inference service and Phase 6 hybrid integration are all
   implemented and verified.
 - Phase 7 Docker Compose brings the three services up together.
-- Phases 8-10 remain: attack simulation, comparative evaluation, and the final
-  documentation and AWS write-up.
+- Phase 8 attack simulation is complete, and resolved the earlier
+  false-positive blocker.
+- Phases 9-10 remain: comparative evaluation, and the final documentation and
+  AWS write-up.
 
-Measured results so far are in `evaluation/results.md`. One finding is worth
-stating up front: the hybrid catches attacks the rules miss, but its false
-positive rate on this API's own benign traffic is currently too high to call it
-deployable. The cause is that the training corpus does not represent live API
-traffic, and Phase 8 is where that gets measured and corrected.
+Measured results are in `evaluation/results.md`. The hybrid catches attacks the
+rules miss, and Phase 8 brought its false positive rate on this API's own benign
+traffic from 17.5% down to 1.8% — by finding, with representative traffic, that
+the payload classifier was mis-scoring credential login bodies as attacks, and
+scoping it to the endpoints where a payload model has signal.
+
+**To see it run,** follow `DEMO_GUIDE.md` — a start-to-finish walkthrough that
+brings the whole stack up in Docker and demonstrates all three attacks being
+detected, with nothing installed but Docker.
 
 See `docs/PROJECT_STATUS.md` for the phase-by-phase status and review notes.
 

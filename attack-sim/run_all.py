@@ -34,15 +34,33 @@ GENERATORS = [
 ]
 
 
-def wait_for_clean_window(timeout=75, restart_after=8):
-    """Wait for the 60s window to empty; offer a restart if it lingers."""
+def _can_restart_api():
+    """Docker CLI reachable? False inside the sim container, which has no CLI."""
+    try:
+        subprocess.run(["docker", "version"], cwd=HERE.parent,
+                       capture_output=True, timeout=10)
+        return True
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        return False
+
+
+def wait_for_clean_window(timeout=90, restart_after=8):
+    """
+    Wait for the 60s window to empty.
+
+    On the host, where the Docker CLI is reachable, a lingering window is
+    cleared by restarting the api container -- faster than waiting it out. In
+    the sim container there is no CLI, so it simply waits: the window is at most
+    60 seconds, and the timeout allows for that plus margin.
+    """
+    can_restart = _can_restart_api()
     start = time.time()
     while time.time() - start < timeout:
         ok, window = api_ready()
         if ok and window.get("events", 0) == 0:
             return True
         waited = time.time() - start
-        if waited > restart_after and window.get("events", 0):
+        if can_restart and waited > restart_after and window.get("events", 0):
             print(f"  window still holds {window.get('events')} event(s) after "
                   f"{waited:.0f}s; restarting api to clear it")
             subprocess.run(["docker", "compose", "restart", "api"],

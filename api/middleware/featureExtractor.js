@@ -286,11 +286,29 @@ function resetStore() {
   endpointEvents.clear();
 }
 
-/** Sizes of the in-memory window, for the /health endpoint and for tests. */
-function storeStats() {
+/**
+ * Live sizes of the in-memory window, for the /health endpoint and for tests.
+ *
+ * Prunes as it counts, rather than reporting raw map contents. The background
+ * sweep only runs once per window, so between sweeps a map still holds events
+ * that have already aged out. A caller asking "is the window clear yet?" -- the
+ * simulation harness waiting to start, the integration test's dirty-window
+ * guard -- needs the answer as of now, not as of the last sweep, or it waits on
+ * events that are already gone.
+ */
+function storeStats(now = Date.now()) {
   let events = 0;
-  for (const list of ipEvents.values()) events += list.length;
-  return { sources: ipEvents.size, endpoints: endpointEvents.size, events };
+  let sources = 0;
+  for (const list of ipEvents.values()) {
+    const live = prune(list, now).length;
+    events += live;
+    if (live > 0) sources += 1;
+  }
+  let endpoints = 0;
+  for (const seen of endpointEvents.values()) {
+    if (prune(seen, now).length > 0) endpoints += 1;
+  }
+  return { sources, endpoints, events };
 }
 
 function stopSweep() {

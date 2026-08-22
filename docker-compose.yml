@@ -3,15 +3,21 @@
 #   docker compose up --build
 #
 # Prerequisite: ml/models must contain trained artefacts. They are bind-mounted
-# rather than copied into the image, because the Random Forest alone is 259 MB
-# and none of them are in version control. Run this first if the directory is
-# empty:
+# rather than copied into the image, because they are not in version control.
+# Run this first if the directory is empty (see DEMO_GUIDE.md for the full path
+# from a clean machine):
 #
 #   .\ml\venv\Scripts\python ml\preprocess.py
 #   .\ml\venv\Scripts\python ml\train.py
 #
 # The API waits for both dependencies to report healthy before it starts, so a
 # request never arrives at a service that has not finished loading.
+#
+# The attack simulator is a fourth service under the "sim" profile, so it does
+# not start with the stack. Run it explicitly:
+#
+#   docker compose --profile sim run --rm sim              # all generators
+#   docker compose --profile sim run --rm sim python sqli_attack.py
 
 services:
   db:
@@ -92,6 +98,23 @@ services:
       retries: 6
       start_period: 10s
     networks: [detection]
+
+  # Traffic simulator. Under the "sim" profile so `docker compose up` does not
+  # start it; it is a driver, not a long-running service. Reaches the API by
+  # service name over the private network, and writes its per-request CSVs to
+  # the host through the evaluation bind mount so recalibration can read them.
+  sim:
+    build:
+      context: ./attack-sim
+    environment:
+      API_URL: http://api:3000
+    volumes:
+      - ./evaluation:/app/evaluation
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [detection]
+    profiles: ["sim"]
 
 networks:
   detection:
