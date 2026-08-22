@@ -1,6 +1,6 @@
 # Project Status
 
-Last reviewed: Phase 7 update
+Last reviewed: after the Phases 0-7 hardening pass
 
 This document records the current implementation state after the initial
 Claude-generated phases. It is meant to keep the README, phase docs, and source
@@ -17,7 +17,8 @@ tree aligned while later phases are being implemented.
 | 4 | Model training | Complete | RF / XGBoost / Isolation Forest trained and saved with scaler and `feature_order.json`. Retrained in Phase 5 with a three-way split: test acc 0.916-0.965, ROC AUC up to 0.976; CV agrees within 0.001. **Key finding: 4 flow features have zero importance (zero-filled in the corpus), so the models cannot detect brute force or credential stuffing** - see `evaluation/results.md`. |
 | 5 | FastAPI inference | Complete | `ml/app.py` serves `/health`, `/meta`, `/predict` with weighted RF+XGB+IF scoring. Threshold 0.77 selected on a validation split (three-way split introduced here). Combined pipeline beats every single model: F1 0.8433 overall, 0.9357 on payload traffic. **Report FPR on payload-bearing rows (5.96%) as well as aggregate (0.87%)** - the aggregate is flattered by flow records. |
 | 6 | Hybrid integration | Complete | Pipeline runs end to end. Deliverable met: an attack rules miss (0.500) is blocked at 0.96 with the classifier. Fail-open verified. Combination is a noisy-OR, not a weighted mean, because a weighted mean would cancel rule verdicts on behavioural attacks. **Blocker: hybrid FPR 33% vs rules-only 0% on benign traffic - not deployable until Phase 8 recalibrates on representative traffic.** |
-| 7 | Docker Compose runtime | Complete | `docker compose up --build` from a clean slate brings db, ml and api to healthy and detection works end to end through the containers. Models bind-mounted (259 MB RF, not in git). `request_log` schema created on first volume init - the gap open since Phase 2 is closed and logging verified. |
+| 7 | Docker Compose runtime | Complete | `docker compose up --build` from a clean slate brings db, ml and api to healthy and detection works end to end through the containers. Models bind-mounted (46 MB compressed, not in git). `request_log` schema created on first volume init - the gap open since Phase 2 is closed and logging verified. Measured footprint: ml 596 MB resident, api 38 MB, db 29 MB. |
+| - | Hardening pass (0-7) | Complete | Sliding-window memory leak fixed; SIGTERM/SIGINT draining added; two integration-test defects that produced misleading failures corrected; all 11 config variables documented; npm test entry points added; parity test made container-runnable. Detection behaviour unchanged. **Random Forest depth constraint was measured and rejected** - every variant roughly doubled payload FPR, though ROC AUC improved, so an AUC-led choice would have picked the worse deployment. Size solved with `joblib compress=3` instead: 230 MB to 46 MB, and loading got faster. See `evaluation/results.md`. |
 | 8 | Attack simulation | Not started | Traffic generator scripts are TODO stubs. |
 | 9 | Evaluation | Not started | `ml/evaluate.py` is a TODO stub; only Phase 1 dataset statistics are documented. |
 | 10 | Final documentation | In progress | Root README and dataset docs now reflect the current state; AWS write-up is still a TODO stub. |
@@ -52,3 +53,18 @@ tree aligned while later phases are being implemented.
    request; and add ModSecurity as a fourth Compose service in front of an API
    running with `DETECTION_MODE=off`.
 3. Phase 10 documentation and the written-only AWS feasibility section.
+
+## Deployment decision (recorded, not yet acted on)
+
+Everything continues to run locally for now. Model training and evaluation may
+later move to Google Colab, with the trained artefacts downloaded and used by
+the API exactly as they are today. That works without changing the pipeline:
+training is a four-minute CPU job, the artefacts total 46 MB, and `ml/app.py`
+already reads its weights and threshold from the artefact rather than from code.
+
+If any part of this is ever hosted publicly, the deliberately vulnerable
+endpoint `/api/search/vulnerable` must not be. It never executes the query it
+builds, but a publicly reachable intentionally-vulnerable endpoint contradicts
+the ethics statement and would let traffic nobody generated contaminate
+`request_log`, which is the evaluation record. The inference service is safe to
+expose - it accepts a feature vector and returns a score.
