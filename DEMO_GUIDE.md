@@ -260,21 +260,172 @@ to `hybrid`) and running `docker compose up -d api` again.
 
 ## 8. Inspect the evidence in the database
 
-Every inspected request is stored with its feature vector and decision:
+Every inspected request is stored with its feature vector and decision. The
+database is Postgres, running in the `db` container. There are two ways in.
+
+### One-off queries (fastest)
 
 ```bash
 docker compose exec db psql -U detector -d api_threat_detection -c "SELECT decision, count(*) FROM request_log GROUP BY decision;"
 ```
 
-Look at what was blocked and why the features supported it:
-
 ```bash
 docker compose exec db psql -U detector -d api_threat_detection -c "SELECT path, decision, features->>'sql_keyword_count' AS kw, features->>'requests_per_min_ip' AS rate FROM request_log WHERE decision='blocked' LIMIT 10;"
 ```
 
+### An interactive session (to poke around freely)
+
+```bash
+docker compose exec -it db psql -U detector -d api_threat_detection
+```
+
+You now have a `psql` prompt inside the container. Useful commands once inside:
+
+| Type this | It does |
+|---|---|
+| `\dt` | List the tables |
+| `\d request_log` | Show the columns of `request_log` |
+| `SELECT * FROM request_log ORDER BY created_at DESC LIMIT 5;` | Show the 5 most recent requests |
+| `SELECT count(*) FROM request_log WHERE decision='blocked';` | Count how many were blocked |
+| `\q` | Exit back to your normal terminal |
+
+Every SQL command ends with a semicolon `;` — that's what tells Postgres "run it now".
+
+### A visual, point-and-click option
+
+If typing SQL isn't comfortable, any free Postgres GUI (DBeaver, TablePlus,
+pgAdmin) can connect directly, because the database port is exposed to your
+machine. Connection details:
+
+| Field | Value |
+|---|---|
+| Host | `localhost` |
+| Port | `5432` |
+| Database | `api_threat_detection` |
+| Username | `detector` |
+| Password | `detector123` |
+
+These are the local demo defaults from `docker-compose.yml` — fine here, not
+something you'd ship to a real deployment.
+
 ---
 
-## 9. Shut down
+## 9. Shipping this project to another laptop
+
+The project folder on disk is large — the Python environment, datasets, and
+build tools add up to a couple of gigabytes — but **almost none of that needs
+to travel**. A Docker image already contains everything needed to *run* the
+system: the code, the language runtime, all dependencies, baked in. The
+several-hundred-MB-to-multi-GB folders on your machine (`ml/venv`, `datasets/`,
+`api/node_modules`) exist only for *developing and training*, and the other
+laptop doesn't need any of them just to run the demo.
+
+What genuinely has to move is much smaller:
+
+| Item | Size | Why it's needed |
+|---|---|---|
+| The `api` and `ml` Docker images | ~1.4 GB combined | The built application |
+| `ml/models/*.pkl` (the trained models) | ~46 MB | Not baked into the image; bind-mounted at runtime |
+| `docker-compose.yml`, `demo.env`, `db/init/` | a few KB | Tells Docker how to start everything |
+
+The images go through Docker Hub (like GitHub, but for containers instead of
+code). The small files go however is easiest — email, USB stick, a shared
+drive, or `git clone` if the repo is on GitHub.
+
+### On this laptop (the one with everything built)
+
+**1. Create a free Docker Hub account** at hub.docker.com if you don't have
+one, then sign in from the terminal:
+
+```bash
+docker login
+```
+
+**2. Tell Docker your Hub username**, so the images build with the right name.
+Create a `.env` entry (or just set it for this session):
+
+```bash
+export DOCKERHUB_USER=your-dockerhub-username
+```
+
+On Windows PowerShell: `$env:DOCKERHUB_USER = "your-dockerhub-username"`
+
+**3. Build and push the two images that make up the system:**
+
+```bash
+docker compose build api ml
+docker compose push api ml
+```
+
+This uploads roughly 400 MB–1 GB compressed, depending on your connection —
+noticeably less than 2 GB because Docker compresses each layer, and layers
+common to many images (the base Python or Node install) are things Docker Hub
+often already has.
+
+By default this creates **public** repositories on Docker Hub, visible to
+anyone. If this needs to stay private, create the repository on hub.docker.com
+first and mark it private before pushing — Docker Hub's free tier includes one
+private repository.
+
+**4. Package the small files.** Zip up just these:
+
+```bash
+zip -r shipping-kit.zip docker-compose.yml demo.env db/init ml/models -x "ml/models/.gitkeep"
+```
+
+On Windows PowerShell:
+
+```powershell
+Compress-Archive -Path docker-compose.yml, demo.env, db\init, ml\models -DestinationPath shipping-kit.zip
+```
+
+That zip should be small — under 100 MB, dominated by the 46 MB of models.
+Send it to the other laptop however is convenient.
+
+### On the other laptop
+
+**1. Install Docker Desktop** (see step 1 of this guide).
+
+**2. Unzip the shipping kit** into a new folder, and open a terminal there.
+
+**3. Set the same Docker Hub username** (so it knows whose images to pull):
+
+```bash
+export DOCKERHUB_USER=your-dockerhub-username
+```
+
+**4. Copy the demo config into place:**
+
+```bash
+cp demo.env .env
+```
+
+**5. Pull the images and start the stack:**
+
+```bash
+docker compose pull api ml
+docker compose up -d
+```
+
+Because this laptop has no `api/` or `ml/` source folders — only the
+`docker-compose.yml` and the pulled images — Compose has no choice but to use
+what it pulled. There's nothing to accidentally rebuild from.
+
+**6. Confirm it's healthy**, then follow this guide from step 3 onward exactly
+as before:
+
+```bash
+docker compose ps
+curl http://localhost:3000/health
+```
+
+If the attack simulator is also wanted on the other laptop, push and pull the
+`sim` image the same way (`docker compose build sim` / `push sim` /
+`pull sim`), since it isn't included in the 400 MB–1 GB estimate above.
+
+---
+
+## 10. Shut down
 
 Stop the services, keeping the database volume:
 
@@ -307,3 +458,12 @@ docker compose --profile sim down -v
   `docker compose restart api`, then re-run.
 - **Port already in use** — another process holds 3000, 8000, or 5432. Override
   in `.env`, e.g. `API_PORT=3001`, and use that port.
+- **`docker compose pull` fails with "denied" or "not found"** — either
+  `DOCKERHUB_USER` isn't set to match the account the images were pushed to, or
+  the Hub repository is private and this machine isn't logged in. Run
+  `docker login` and confirm `echo $DOCKERHUB_USER` matches the pushing account.
+- **On the other laptop, `docker compose up` tries to build instead of using the
+  pulled image** — this only happens if the `api/` or `ml/` source folders were
+  copied over as well. Use only the shipping-kit files from step 9; without a
+  source folder to build from, Compose has nothing to build and must use the
+  pulled image.

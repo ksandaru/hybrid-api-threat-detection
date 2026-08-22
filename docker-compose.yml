@@ -44,6 +44,10 @@ services:
   ml:
     build:
       context: ./ml
+    # Name it so it can be pushed to / pulled from Docker Hub. Harmless on this
+    # machine: with the source present, `docker compose up` still builds locally
+    # as before. See DEMO_GUIDE.md "Shipping to another machine".
+    image: ${DOCKERHUB_USER:-local}/hybrid-api-threat-detection-ml:latest
     environment:
       PORT: 8000
       # Weights and threshold come from the trained artefact. Set these only to
@@ -70,6 +74,7 @@ services:
   api:
     build:
       context: ./api
+    image: ${DOCKERHUB_USER:-local}/hybrid-api-threat-detection-api:latest
     environment:
       PORT: 3000
       # Service names, not localhost: each container has its own loopback.
@@ -106,6 +111,7 @@ services:
   sim:
     build:
       context: ./attack-sim
+    image: ${DOCKERHUB_USER:-local}/hybrid-api-threat-detection-sim:latest
     environment:
       API_URL: http://api:3000
     volumes:
