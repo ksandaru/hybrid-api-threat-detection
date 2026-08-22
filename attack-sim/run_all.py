@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from common import API_URL, api_ready, check_trust_proxy
+from common import API_URL, api_ready
 
 HERE = Path(__file__).resolve().parent
 GENERATORS = [
@@ -44,7 +44,7 @@ def _can_restart_api():
         return False
 
 
-def wait_for_clean_window(timeout=90, restart_after=8):
+def wait_for_clean_window(timeout=120, restart_after=8):
     """
     Wait for the 60s window to empty.
 
@@ -55,19 +55,30 @@ def wait_for_clean_window(timeout=90, restart_after=8):
     """
     can_restart = _can_restart_api()
     start = time.time()
+    announced = False
     while time.time() - start < timeout:
         ok, window = api_ready()
-        if ok and window.get("events", 0) == 0:
+        events = window.get("events", 0)
+        if ok and events == 0:
+            if announced:
+                print("  window clear.")
             return True
         waited = time.time() - start
-        if can_restart and waited > restart_after and window.get("events", 0):
-            print(f"  window still holds {window.get('events')} event(s) after "
+        if can_restart and waited > restart_after and events:
+            print(f"  window still holds {events} event(s) after "
                   f"{waited:.0f}s; restarting api to clear it")
             subprocess.run(["docker", "compose", "restart", "api"],
                            cwd=HERE.parent, capture_output=True)
             time.sleep(4)
             continue
-        time.sleep(3)
+        # Print progress so a legitimate wait does not look like a hang. The
+        # window drains within 60s of the last request to it (typically the
+        # manual demo just before this), so this is expected, not stuck.
+        remaining = max(0, timeout - waited)
+        print(f"  waiting for detection window to drain: {events} event(s) "
+              f"still in the last 60s (up to {remaining:.0f}s more)...", flush=True)
+        announced = True
+        time.sleep(5)
     return False
 
 
@@ -79,9 +90,14 @@ def main():
     ok, _ = api_ready()
     if not ok:
         raise SystemExit(f"API at {API_URL} not answering. `docker compose up -d` first.")
-    check_trust_proxy()
+    # Deliberately no active trust-proxy probe here: a probe request would add
+    # an event to the very window the first generator then waits to find clean,
+    # manufacturing the delay it is trying to avoid. A misconfigured proxy shows
+    # up plainly anyway, as benign traffic blocked near 90% instead of ~2%.
 
-    print(f"running {len(GENERATORS)} generators against {API_URL}\n")
+    print(f"running {len(GENERATORS)} generators against {API_URL}")
+    print("(the first generator waits for a clean 60s window; if you just ran "
+          "the manual demo, expect a short wait here)\n")
     for name, extra in GENERATORS:
         if not wait_for_clean_window():
             raise SystemExit(f"could not get a clean window before {name}")

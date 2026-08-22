@@ -163,7 +163,19 @@ bodies, so an ordinary login is no longer mistaken for an attack.
 The simulator is a fourth container under the `sim` profile. It runs many
 clients, each with a distinct source, and writes a labelled CSV per attack type.
 
-Run every generator in order (benign traffic, then SQLi, brute force, and
+**First, clear the detection window.** The manual requests you just sent in step
+4 are still inside the API's 60-second behavioural window, and the simulator
+refuses to measure against traffic it did not send. Restarting the API empties
+the window instantly:
+
+```bash
+docker compose restart api
+```
+
+(If you skip this, the simulator does not fail — it just waits, printing
+progress, until the window drains on its own within a minute.)
+
+Then run every generator in order (benign traffic, then SQLi, brute force, and
 credential stuffing), waiting for a clean detection window between each:
 
 ```bash
