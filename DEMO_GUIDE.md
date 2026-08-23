@@ -342,13 +342,15 @@ docker login
 ```
 
 **2. Tell Docker your Hub username**, so the images build with the right name.
-Create a `.env` entry (or just set it for this session):
+Put it in `.env` (not just `export` in the current terminal — a shell-exported
+value vanishes in a new terminal window, and Compose silently falls back to
+the placeholder `local`, which doesn't exist. This exact mistake is what broke
+the pull the first time; see the "found the actual bug" note in the
+Troubleshooting section):
 
 ```bash
-export DOCKERHUB_USER=your-dockerhub-username
+echo "DOCKERHUB_USER=your-dockerhub-username" >> .env
 ```
-
-On Windows PowerShell: `$env:DOCKERHUB_USER = "your-dockerhub-username"`
 
 **3. Build and push the two images that make up the system:**
 
@@ -367,26 +369,54 @@ anyone. If this needs to stay private, create the repository on hub.docker.com
 first and mark it private before pushing — Docker Hub's free tier includes one
 private repository.
 
-**4. Package the small files.** Zip up just these:
+**4. Package the small files.** Zip up just these — `docker-compose.yml`,
+`demo.env`, `db/init/`, and `ml/models/` — keeping their folder names intact
+(the mount paths in `docker-compose.yml` are `./db/init` and `./ml/models`, so
+if the zip loses those parent folder names, the files land in the wrong place
+and the other laptop starts with empty, useless folders — no error, just a
+service that never becomes healthy).
 
 ```bash
 zip -r shipping-kit.zip docker-compose.yml demo.env db/init ml/models -x "ml/models/.gitkeep"
 ```
 
-On Windows PowerShell:
+**On Windows, the easiest reliable way is the Explorer GUI, not PowerShell:**
+select `docker-compose.yml`, `demo.env`, `db`, and `ml` together in File
+Explorer, right-click → **Send to → Compressed (zipped) folder**. This
+preserves folder names correctly.
+
+If scripting it, `Compress-Archive` needs care: passed a list of paths, it
+silently drops each item's *parent* folder name and keeps only its own name —
+`ml\models` becomes `models\...` in the zip, not `ml\models\...`. The fix is
+to stage the exact folder names first, then compress the staging folder as one
+item:
 
 ```powershell
-Compress-Archive -Path docker-compose.yml, demo.env, db\init, ml\models -DestinationPath shipping-kit.zip
+New-Item -ItemType Directory -Force -Path staging\db, staging\ml | Out-Null
+Copy-Item docker-compose.yml, demo.env -Destination staging
+Copy-Item -Recurse db\init staging\db\init
+Copy-Item -Recurse ml\models staging\ml\models
+Compress-Archive -Path staging\* -DestinationPath shipping-kit.zip -Force
+Remove-Item -Recurse staging
 ```
 
 That zip should be small — under 100 MB, dominated by the 46 MB of models.
 Send it to the other laptop however is convenient.
+
+**5. Note the Docker Hub username** used in step 1 — the other laptop needs it
+too (next section).
 
 ### On the other laptop
 
 **1. Install Docker Desktop** (see step 1 of this guide).
 
 **2. Unzip the shipping kit** into a new folder, and open a terminal there.
+Check that unzipping actually produced `ml\models\*.pkl` and
+`db\init\01_schema.sql` at those exact nested paths — not `models\*.pkl` or
+`init\*.sql` sitting at the top level. If they're flattened, move them into
+place by hand before continuing; Docker will otherwise start with silent,
+empty stand-in folders instead of an error, and `ml` will run but never
+report itself healthy.
 
 **3. Set the same Docker Hub username** (so it knows whose images to pull):
 
@@ -444,8 +474,22 @@ docker compose --profile sim down -v
 
 ## Troubleshooting
 
-- **`ml` never becomes healthy** — `ml/models/` is empty or incomplete. See
-  step 1.
+- **`ml` never becomes healthy** — almost always `ml/models/` being empty or
+  incomplete, not a real crash. Confirm first:
+
+  ```bash
+  ls ml/models        # needs random_forest.pkl, xgboost.pkl,
+                       # isolation_forest.pkl, scaler.pkl, feature_order.json
+  docker compose logs ml
+  ```
+
+  If the logs show `"ready":false` with a `FileNotFoundError`, the model files
+  weren't where Compose expected — see step 9's warning about zip tools
+  flattening folder names. Fix the files' location, then
+  `docker compose up -d --force-recreate ml` — a plain restart is not enough,
+  because the service only tries loading the models once at startup and does
+  not retry; it needs a fresh container to notice files that appeared after it
+  already failed.
 - **The API blocks ordinary logins, or every attack is blocked at attempt 1** —
   `.env` is missing or `TRUST_PROXY` is not set, so the simulator's clients are
   collapsing into one source. Confirm `.env` exists (step 2) and re-run
@@ -458,10 +502,20 @@ docker compose --profile sim down -v
   `docker compose restart api`, then re-run.
 - **Port already in use** — another process holds 3000, 8000, or 5432. Override
   in `.env`, e.g. `API_PORT=3001`, and use that port.
-- **`docker compose pull` fails with "denied" or "not found"** — either
-  `DOCKERHUB_USER` isn't set to match the account the images were pushed to, or
-  the Hub repository is private and this machine isn't logged in. Run
-  `docker login` and confirm `echo $DOCKERHUB_USER` matches the pushing account.
+- **`docker compose pull`, or `up`, fails with "denied", "not found", or tries
+  to build a Dockerfile that doesn't exist** — found the actual bug behind
+  this exact failure while testing: `DOCKERHUB_USER` wasn't set in `.env`, so
+  Compose silently used the placeholder name `local`, which exists nowhere.
+  Confirm it's genuinely in the file, not just exported in one terminal
+  session (exports vanish in a new window; `.env` doesn't):
+
+  ```bash
+  grep DOCKERHUB_USER .env
+  ```
+
+  If it's missing, add it (`echo "DOCKERHUB_USER=your-dockerhub-username" >> .env`)
+  and re-run `docker compose up -d`. If the Hub repository is private, also
+  confirm this machine is logged in (`docker login`).
 - **On the other laptop, `docker compose up` tries to build instead of using the
   pulled image** — this only happens if the `api/` or `ml/` source folders were
   copied over as well. Use only the shipping-kit files from step 9; without a

@@ -51,3 +51,7 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Distribution artefacts (built locally, not source)
+shipping-kit.zip
+*.zip
