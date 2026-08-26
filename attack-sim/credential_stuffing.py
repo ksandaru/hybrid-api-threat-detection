@@ -1,31 +1,3 @@
-"""
-Credential-stuffing attack generator.
-
-Credential stuffing replays (username, password) pairs harvested from a breach
-of one service against another, betting on password reuse. It differs from
-brute force in its behavioural signature: instead of many passwords against one
-username, it is many *distinct usernames* tried from one source, usually one
-attempt each, so per-username failure counts stay low and only the breadth of
-usernames gives it away. DISTINCT_USERNAMES / CREDENTIAL_STUFFING is the rule
-written for exactly that shape.
-
-**Ethics -- the load-bearing constraint of this file.** The credential pairs
-are entirely synthetic, generated here from a fixed seed. They are not a real
-leaked list, not a public breach corpus, not sampled or derived from real
-credentials in any way. Using genuine leaked pairs would be both an ethics
-violation and pointless: the attack is characterised by the *pattern* of many
-usernames from one source, and invented pairs reproduce that pattern exactly.
-The offline training corpus contains no credential-stuffing examples either
-(recorded in Phase 1), so this generator is the only place this attack type is
-represented, which makes its synthetic origin worth stating plainly.
-
-A handful of the synthetic usernames are pre-registered with a *different*
-password than the attacker tries, so the run includes the realistic case where
-the account exists but the reused password does not match. None of the tried
-passwords is ever a registered account's real password: no login here is meant
-to succeed.
-"""
-
 import argparse
 import time
 

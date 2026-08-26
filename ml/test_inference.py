@@ -1,26 +1,3 @@
-"""Deliverable check for the inference service (Phase 5).
-
-Two parts, because they answer different questions.
-
-1. Distributional check (pass/fail). Samples real benign and real attack rows
-   from the corpus, sends each through the running service, and asserts that the
-   service reproduces the separation and false positive rate measured offline by
-   ml/train.py. This is the check that can fail the build: it verifies the
-   service scores identically to the training pipeline, over a distribution
-   rather than over a handful of strings.
-
-2. Illustrative cases (reported, not asserted). Hand-written requests shaped the
-   way the Express middleware builds them, printed with their scores so the
-   behaviour on recognisable payloads is visible. These are deliberately not
-   pass/fail: three hand-picked strings are not a distribution, and an earlier
-   version of this file asserted on them and produced a misleading failure.
-
-Run the service first, from ml/:
-    ..\\ml\\venv\\Scripts\\python -m uvicorn app:app --port 8000
-then:
-    .\\ml\\venv\\Scripts\\python ml\\test_inference.py
-"""
-
 import json
 import sys
 import urllib.error

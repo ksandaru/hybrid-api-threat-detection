@@ -1,21 +1,3 @@
-/**
- * Rule-based detection: stage one of the hybrid cascade.
- *
- * Deterministic, interpretable and cheap. Every rule reads only the shared
- * feature vector produced by featureExtractor.js, deliberately: the rule
- * filter and the ML classifier judge the same representation of a request,
- * which is what makes their scores combinable in stage two.
- *
- * Returns { blocked, alerts, ruleScore }:
- *   blocked   - true if any high-severity rule fired; the request is rejected
- *               without consulting the classifier
- *   alerts    - what fired, for logging and for explaining a decision
- *   ruleScore - clamped to [0, 1], combined with the ML score in Phase 6
- *
- * Thresholds are exported so the evaluation in Phase 9 can sweep them when
- * measuring the rule-only baseline against the hybrid configuration.
- */
-
 const THRESHOLDS = {
   SQL_KEYWORDS_STRONG: 5,
   SQL_KEYWORDS_MODERATE: 3,

@@ -1,34 +1,3 @@
-/**
- * Detection orchestrator.
- *
- * Sits in the Express pipeline ahead of every /api route, so coverage is
- * structural: a newly added endpoint is inspected by default rather than by
- * remembering to protect it.
- *
- * Per request:
- *   1. extract the shared feature vector, updating the sliding window first so
- *      the current request is included in the statistics used to judge it
- *   2. evaluate the rule filter
- *   3. if a high-severity rule fired, reject immediately without consulting the
- *      classifier -- the cheap deterministic path handles what it can handle,
- *      and the expensive adaptive path is reserved for what needs it
- *   4. otherwise, in hybrid mode, score the same feature vector at the
- *      inference service and combine the two results
- *   5. reject if the combined score reaches the threshold
- *   6. record the outcome, off the critical path
- *
- * DETECTION_MODE selects behaviour, which is how the Phase 9 evaluation builds
- * its baseline configurations without changing code:
- *   off    - observe and log only, never block  (measures the no-control case)
- *   rules  - rule filter only                   (baseline 1)
- *   hybrid - rules plus ML                      (the proposed framework)
- *
- * Fail-open (NFR2): if inference is unreachable, slow or malformed, the request
- * is judged on the rule verdict alone and a warning is logged. Detection
- * degrades; availability does not. See scoreCombiner.js for why the combination
- * is a noisy-OR rather than the weighted mean the specification suggests.
- */
-
 const config = require('../config');
 const { extractFeatures } = require('./featureExtractor');
 const ruleEngine = require('./ruleEngine');

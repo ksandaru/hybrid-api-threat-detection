@@ -3,9 +3,6 @@ const config = require('../config');
 
 const pool = new Pool({ connectionString: config.databaseUrl });
 
-// Postgres isn't provisioned until Phase 7's docker-compose stack exists.
-// Callers should not assume this resolves — logRequest() below swallows
-// connection errors so request logging never breaks the request path.
 pool.on('error', (err) => {
   console.error('[db] unexpected pool error', err.message);
 });

@@ -1,30 +1,3 @@
-"""
-SQL injection attack generator.
-
-Sends a spread of SQLi payloads to /api/search/vulnerable and records each with
-its expected label (attack) and a sub-type, so Phase 9 can report detection
-rate per SQLi family rather than one blended number. The families are chosen to
-cover both what the rule engine is written to catch and what it is not:
-
-  tautology            ' OR '1'='1                 -- rule + ML
-  union                UNION SELECT ...            -- rule (high severity)
-  comment              admin'--                    -- rule
-  stacked              '; DROP TABLE ...           -- rule (reweighted)
-  obfuscated           /**/OR/**/1=1, %27 encoding -- the evasion Phase 3 found
-  boolean/time-blind   AND SLEEP(5), AND 1=1       -- partial rule coverage
-
-The obfuscated family matters most. Phase 3 found that inline-comment and
-percent-encoded tautologies slipped past the original rules, which is why
-SQLI_OBFUSCATED_TAUTOLOGY was added. Including them here is what turns "the
-rules pass their own tests" into "the rules are measured against evasion they
-did not anticipate."
-
-The endpoint never executes the query it builds. This is attack traffic against
-a target designed to receive it safely, which is the whole point of the
-project's ethics position: a realistic attack surface with no exploitable
-system behind it.
-"""
-
 import argparse
 import time
 

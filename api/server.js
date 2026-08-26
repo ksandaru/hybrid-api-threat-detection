@@ -12,9 +12,7 @@ const { pool } = require('./db/pool');
 
 const app = express();
 
-// See config/index.js for why this is opt-in and why the default matters.
-// Logged loudly because a detection system that trusts a spoofable source
-// header should never do so silently.
+
 if (config.trustProxy) {
   app.set('trust proxy', true);
   console.warn('[config] TRUST_PROXY=1: X-Forwarded-For is trusted as the ' +
@@ -27,11 +25,6 @@ app.use(morgan('dev'));
 app.use(express.json());
 
 app.get('/health', (req, res) => {
-  // `window` reports how much per-source state the behavioural features are
-  // currently holding: counts only, never addresses. It exists so a test can
-  // tell "this source has a clean window" from "this source is still inside a
-  // window left by the previous run" -- a distinction that otherwise shows up
-  // as an unexplained failure several checks later.
   res.status(200).json({ status: 'ok', window: featureExtractor.storeStats() });
 });
 
@@ -47,21 +40,6 @@ if (require.main === module) {
     console.log(`API listening on port ${config.port}`);
   });
 
-  /**
-   * Shut down on a signal instead of being killed mid-request.
-   *
-   * `docker compose stop` sends SIGTERM and waits ten seconds before SIGKILL.
-   * With no handler, Node's default action for SIGTERM is immediate
-   * termination: every request being served at that moment is dropped, and the
-   * Postgres connections are left for the server to time out. That matters here
-   * because the evaluation depends on request_log being a complete record of
-   * what the API saw — a truncated write at shutdown is a missing row in the
-   * results.
-   *
-   * server.close() stops accepting new connections and waits for the ones in
-   * flight, then the pool is drained and the sliding-window timer cleared so
-   * the event loop can empty on its own.
-   */
   let shuttingDown = false;
 
   async function shutdown(signal) {

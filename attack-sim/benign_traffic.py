@@ -1,29 +1,3 @@
-"""
-Benign traffic generator.
-
-This is the most consequential script in Phase 8, and not because generating
-normal traffic is difficult. Phase 6 measured a hybrid false positive rate of
-33% against rules-only 0% on live-shaped benign traffic, and recorded it as a
-deployment blocker. The cause is that the ML decision threshold (0.77) was
-selected on corpus validation rows, which do not resemble what this API
-actually receives. Recalibrating needs a body of representative benign traffic
-to calibrate against. This produces it.
-
-"Representative" is doing real work in that sentence. If this generator only
-sends `laptop` and `mouse`, the threshold chosen from it will look excellent
-and fail on contact with anything else. So the searches here include the things
-that make benign traffic awkward for a payload-based detector: apostrophes in
-product names, quoted phrases, hyphens and dashes, URL-encoded characters,
-comparison operators, long queries, and words that happen to contain SQL
-keywords ("ordered", "selection", "android"). Those are the rows that generate
-false positives, and leaving them out would be calibrating against a strawman.
-
-Traffic is paced. Each client stays well under 30 requests per minute, because
-above that RATE_ELEVATED fires and the request stops being benign as far as the
-system is concerned -- correctly. A benign generator that trips the rate rules
-is measuring bursty traffic, not normal traffic.
-"""
-
 import argparse
 import time
 

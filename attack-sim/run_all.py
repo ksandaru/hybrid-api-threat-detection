@@ -1,22 +1,3 @@
-"""
-Run every Phase 8 generator in sequence, with a clean window between each.
-
-The generators must not overlap. They share the API's 60-second behavioural
-window, so a brute-force run started while benign traffic is still inside the
-window would have its failure ratio diluted by the benign logins, and the
-benign false-positive measurement would be contaminated by the attack. Running
-them back to back without waiting would produce exactly the cross-talk the
-per-generator preflight check is there to prevent.
-
-So between generators this waits for the window to drain (or restarts the API,
-which is faster). The result is four independent CSVs under evaluation/traffic/,
-each measuring one traffic type against a stack that saw only that type.
-
-This does not recalibrate the threshold; recalibrate_threshold.py does that from
-the benign CSV afterwards. Keeping generation and calibration separate means the
-benign traffic can be regenerated without silently moving the decision boundary.
-"""
-
 import argparse
 import subprocess
 import sys

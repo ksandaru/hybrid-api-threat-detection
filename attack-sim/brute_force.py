@@ -1,27 +1,3 @@
-"""
-Brute-force attack generator.
-
-One attacker, one known username, many password guesses in quick succession
-against /api/auth/login. This is the attack the rule engine catches through
-behaviour rather than payload: no single request looks malicious -- a wrong
-password is an ordinary event -- but the rate of failures from one source, and
-the ratio of failures to successes, is not.
-
-The generator registers a victim account first so the guesses are against a
-real username with a password the attacker does not have. It never guesses the
-real password: the point is to trigger detection on the failure pattern, not to
-break in. All credentials here are invented for this project.
-
-Two rules are expected to engage as this runs:
-  - RATE_EXCESSIVE / RATE_ELEVATED, on request volume from one source
-  - AUTH_FAILURE_RATIO, on the fraction of login attempts that fail
-
-so the recorded blocks should begin partway through the sequence rather than on
-the first request. Phase 9 reads "attempt at which blocking began" from the CSV;
-that number is the detection latency for this attack, and it is a more useful
-figure than a single blocked/allowed rate.
-"""
-
 import argparse
 import time
 

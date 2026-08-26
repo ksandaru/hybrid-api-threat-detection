@@ -5,11 +5,6 @@ const config = require('../config');
 
 const router = express.Router();
 
-// In-memory user store — sufficient for this dissertation's single-node
-// scope (spec explicitly allows "in-memory or Postgres"). This is also
-// the brute-force / credential-stuffing detection target: every login
-// attempt, success or failure, is a plain request the detection
-// middleware (Phase 3+) will observe.
 const users = new Map();
 
 router.post('/register', async (req, res) => {
