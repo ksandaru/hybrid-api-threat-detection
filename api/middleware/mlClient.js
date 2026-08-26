@@ -1,17 +1,3 @@
-/**
- * Client for the Python inference service.
- *
- * The contract is deliberately narrow: send the 17-name feature object, receive
- * a score. This module knows nothing about which models exist or how their
- * outputs are combined, and the service knows nothing about HTTP requests.
- *
- * Every failure path returns `{ ok: false }` rather than throwing. The caller
- * treats that as a reason to fall back to the rule verdict, implementing the
- * fail-open policy in NFR2: a detection layer that is unreachable must not take
- * the API down with it. An availability incident caused by a security control
- * is still an availability incident.
- */
-
 const axios = require('axios');
 const config = require('../config');
 

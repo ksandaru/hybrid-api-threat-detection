@@ -1,25 +1,3 @@
-/**
- * Canonical feature extraction for the detection middleware.
- *
- * This file is the JavaScript half of the shared feature contract. Its
- * counterpart is ml/features.py, and the two MUST produce identical
- * vectors for identical input: same names, same order, same arithmetic.
- * If you change anything here, mirror it there in the same commit, and
- * re-run api/test/featureParity.js to prove the two still agree.
- *
- * Mirroring notes (places where a naive port would silently diverge):
- *  - Python's len() and iteration are over code points; JavaScript's
- *    String.length and index access are over UTF-16 code units. Array.from()
- *    is used here so multi-byte characters count the same on both sides.
- *  - Python's str.count() finds non-overlapping occurrences; split().length-1
- *    matches that behaviour.
- *  - Flow-level inter-arrival variance is expressed in microseconds squared,
- *    because the training corpus derives that feature from CICIDS2017's
- *    "Flow IAT Std" column, which is recorded in microseconds. Emitting
- *    milliseconds here would put live traffic on a different scale from the
- *    data the models were fitted on.
- */
-
 const PAYLOAD_FEATURES = [
   'payload_length',
   'sql_keyword_count',

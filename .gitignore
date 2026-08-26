@@ -24,8 +24,6 @@ htmlcov/
 .ipynb_checkpoints/
 
 # Secrets and local environment overrides
-.env
-.env.*
 !.env.example
 
 # Large local datasets and derived corpora
@@ -52,3 +50,4 @@ Thumbs.db
 # Distribution artefacts (built locally, not source)
 shipping-kit.zip
 *.zip
+config.bat

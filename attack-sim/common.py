@@ -1,30 +1,3 @@
-"""
-Shared harness for the Phase 8 traffic generators.
-
-Every generator in this directory sends requests to *this project's own local
-API* and records what it sent, what it expected, and what came back. Nothing
-here targets anything else, and nothing here needs a real exploitable database:
-`/api/search/vulnerable` builds an unsanitised query by concatenation and
-returns it for inspection without ever executing it.
-
-Two things this module exists to get right, both of which are easy to get wrong
-in a way that quietly invalidates the results:
-
-**Source identity.** Every behavioural feature the detection system computes --
-request rate, login failure ratio, distinct usernames tried, unique sources per
-endpoint -- is keyed on the request's source. Run twenty simulated clients from
-one machine without doing anything about this and they are one source: they trip
-the rate rules collectively, and the harness measures its own aggregate load
-instead of the attack it meant to simulate. Each Client here carries its own
-synthetic address in X-Forwarded-For, which the API honours only when started
-with TRUST_PROXY=1.
-
-**Labels are recorded at send time, not inferred afterwards.** The CSV says what
-each request was *meant* to be, independently of what the system decided about
-it. Phase 9 scores one against the other. Deriving the label from the response
-would make every configuration score 100%.
-"""
-
 import csv
 import datetime as _dt
 import os

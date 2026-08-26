@@ -1,32 +1,3 @@
-"""Model training (Phase 4).
-
-Trains the three models named in the methodology and saves them, together with
-the fitted scaler and the canonical feature ordering, to ml/models/.
-
-  Random Forest     supervised, primary classifier, exposes feature importance
-  XGBoost           supervised, gradient boosting
-  Isolation Forest  unsupervised, fitted on benign traffic only
-
-Ordering discipline (this is the part that is easy to get wrong):
-
-  1. split first, stratified, so the class balance is preserved on both sides
-  2. fit the scaler on the training split only
-  3. apply SMOTE to the training split only, and only after the split
-
-Applying SMOTE before the split would interpolate synthetic minority samples
-between rows that later land on opposite sides of it, so the model would be
-evaluated partly on relatives of data it had already seen. Cross-validation
-runs SMOTE inside each fold, via an imbalanced-learn pipeline, for the same
-reason: resampling the whole training set before cross-validating leaks between
-folds.
-
-Usage:
-    python ml/train.py                 full corpus, with cross-validation
-    python ml/train.py --no-cv         skip cross-validation (much faster)
-    python ml/train.py --sample 50000  stratified subsample, for a smoke run
-    python ml/train.py --sources kaggle_sqliv3
-"""
-
 import argparse
 import json
 import sys

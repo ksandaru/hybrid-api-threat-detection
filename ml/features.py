@@ -1,25 +1,3 @@
-"""Canonical feature contract for the hybrid detection pipeline.
-
-This module is the single source of truth for the feature vector used by
-both the offline training pipeline (ml/preprocess.py, ml/train.py) and the
-live Express detection middleware (api/middleware/featureExtractor.js).
-The two MUST stay in sync: same feature names, same order, same
-definitions. If you change anything here, mirror the change in
-featureExtractor.js in the same commit.
-
-Feature families:
-  - Payload-level (12): computed from a single request's text (URL query
-    string, path, or body) — the signal for SQL injection detection.
-  - Flow-level (5): computed from a sliding window of recent requests per
-    source IP — the signal for brute-force / credential-stuffing detection.
-    At inference time these are computed live by the Express middleware
-    from real request history. In the training corpus, only CICIDS2017
-    carries genuine flow statistics; Kaggle/CSIC/ATRDF are single-request
-    payload sources and get zero-filled flow features (see preprocess.py
-    and docs/phase-1-datasets/MEMORY.md for why, and for the CICIDS2017
-    proxy limitations).
-"""
-
 import math
 import re
 from collections import Counter

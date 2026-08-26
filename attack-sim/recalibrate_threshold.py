@@ -1,30 +1,3 @@
-"""
-Re-select the detection threshold on representative traffic.
-
-This closes the blocker recorded at Phase 6: the hybrid pipeline had a 33% false
-positive rate on live-shaped benign traffic against 0% for rules alone, because
-the decision threshold (0.77 on the ML score, 0.7 on the combined score) was
-chosen on corpus validation rows that do not resemble this API's traffic. The
-right threshold cannot be known until there is representative traffic to choose
-it on -- which the Phase 8 generators now produce, each request carrying the
-combined score the pipeline gave it (via the trace headers).
-
-What this does:
-  1. read every generated CSV under evaluation/traffic/
-  2. for a grid of candidate combined-decision thresholds, compute benign false
-     positive rate and per-attack-type recall, treating rule-blocked requests as
-     detected regardless of threshold (a high-severity rule short-circuits ahead
-     of the score)
-  3. report the operating point at the current threshold, and recommend one that
-     holds benign FPR under a target while keeping attack recall as high as
-     possible
-  4. write the curve and the recommendation to evaluation/threshold_recalibration.md
-
-It changes nothing on its own. Moving the boundary is a one-line change to
-DETECTION_THRESHOLD, made deliberately after reading the recommendation, not a
-side effect of running this.
-"""
-
 import argparse
 import csv
 from collections import defaultdict

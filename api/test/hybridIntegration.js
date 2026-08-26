@@ -78,7 +78,8 @@ async function main() {
     console.log(`the API is holding ${occupancy.events} event(s) from ` +
                 `${occupancy.sources} source(s) in its 60s window.`);
     console.log('Results would be meaningless. Either wait 60s or restart it:');
-    console.log('    docker compose restart api');
+    console.log('    docker compose restart api      (containers)');
+    console.log('    or restart `node server.js`     (running directly)');
     console.log();
     process.exit(2);
   }
