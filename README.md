@@ -30,6 +30,12 @@ scoping it to the endpoints where a payload model has signal.
 brings the whole stack up in Docker and demonstrates all three attacks being
 detected, with nothing installed but Docker.
 
+**Setting this up on a different machine for someone with no prior context?**
+Use `QUICKSTART.md` instead — a short, assumption-free guide covering
+installing Docker Desktop, unzipping the pre-built `shipping-kit.zip`, and
+running the demonstration, written for someone who has never touched this
+project before.
+
 See `docs/PROJECT_STATUS.md` for the phase-by-phase status and review notes.
 
 ## Architecture
