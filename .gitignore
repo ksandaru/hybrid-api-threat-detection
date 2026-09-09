@@ -52,3 +52,5 @@ Thumbs.db
 # Distribution artefacts (built locally, not source)
 shipping-kit.zip
 *.zip
+
+evaluation/traffic_modsec/*

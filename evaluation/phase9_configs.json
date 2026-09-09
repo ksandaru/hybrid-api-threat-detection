@@ -5,6 +5,13 @@
     "combined": 0.7,
     "ml": 0.77
   },
+  "config_order": [
+    "none",
+    "rules",
+    "ml",
+    "modsec",
+    "hybrid"
+  ],
   "configs": {
     "none": {
       "accuracy": 0.5576036866359447,
@@ -63,6 +70,25 @@
         0.09243697478991597
       ]
     },
+    "modsec": {
+      "accuracy": 0.663594470046083,
+      "precision": 1.0,
+      "recall": 0.23958333333333334,
+      "f1": 0.3865546218487395,
+      "fpr": 0.0,
+      "tp": 23,
+      "fp": 0,
+      "fn": 73,
+      "tn": 121,
+      "f1_ci95": [
+        0.2727090909090909,
+        0.49302318334787454
+      ],
+      "fpr_ci95": [
+        0.0,
+        0.0
+      ]
+    },
     "hybrid": {
       "accuracy": 0.9447004608294931,
       "precision": 0.9565217391304348,
@@ -101,54 +127,68 @@
       "b10": 80,
       "n_discordant": 82,
       "p_value": 1.4078614025652531e-21
+    },
+    "hybrid_vs_modsec": {
+      "b01": 4,
+      "b10": 65,
+      "n_discordant": 69,
+      "p_value": 3.1147468230931924e-15
     }
   },
   "per_attack_type": {
     "brute_force": {
       "rules": 0.8666666666666667,
       "ml": 0.0,
+      "modsec": 0.0,
       "hybrid": 0.8666666666666667,
       "n": 30
     },
     "credential_stuffing": {
       "rules": 0.9,
       "ml": 0.0,
+      "modsec": 0.0,
       "hybrid": 0.9,
       "n": 40
     },
     "sqli_blind": {
       "rules": 0.5,
       "ml": 0.5,
+      "modsec": 1.0,
       "hybrid": 1.0,
       "n": 4
     },
     "sqli_comment": {
       "rules": 0.0,
       "ml": 1.0,
+      "modsec": 0.5,
       "hybrid": 1.0,
       "n": 4
     },
     "sqli_obfuscated": {
       "rules": 0.6666666666666666,
       "ml": 0.5,
+      "modsec": 0.8333333333333334,
       "hybrid": 1.0,
       "n": 6
     },
     "sqli_stacked": {
       "rules": 0.0,
       "ml": 1.0,
+      "modsec": 1.0,
       "hybrid": 1.0,
       "n": 3
     },
     "sqli_tautology": {
       "rules": 1.0,
       "ml": 0.0,
+      "modsec": 1.0,
       "hybrid": 1.0,
       "n": 5
     },
     "sqli_union": {
       "rules": 1.0,
       "ml": 0.0,
+      "modsec": 1.0,
       "hybrid": 1.0,
       "n": 4
     }

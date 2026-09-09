@@ -37,6 +37,7 @@ from scipy import stats
 
 ROOT = Path(__file__).parent.parent
 TRAFFIC = ROOT / "evaluation" / "traffic"
+TRAFFIC_MODSEC = ROOT / "evaluation" / "traffic_modsec"
 FIG_DIR = ROOT / "evaluation" / "figures"
 OUT_JSON = ROOT / "evaluation" / "phase9_configs.json"
 
@@ -47,6 +48,15 @@ ML_THRESHOLD = 0.77
 
 CONFIGS = ["none", "rules", "ml", "hybrid"]
 
+# ModSecurity v3 with the OWASP Core Rule Set, run as a reverse proxy in front
+# of the same API with its own detection disabled, so the WAF is the only
+# control. Recorded in a separate session because it is an external system and
+# cannot be derived from the internal scores. The generators are seeded, so the
+# request sequence is identical by construction and the two sessions pair by
+# position within each generator - stated here because that assumption is what
+# makes the McNemar comparison against it legitimate.
+MODSEC = "modsec"
+
 
 def f(v):
     try:
@@ -55,9 +65,9 @@ def f(v):
         return None
 
 
-def load():
+def load(directory=None):
     rows = []
-    for p in sorted(TRAFFIC.glob("*.csv")):
+    for p in sorted((directory or TRAFFIC).glob("*.csv")):
         with p.open(newline="", encoding="utf-8") as fh:
             for r in csv.DictReader(fh):
                 if r.get("error"):
@@ -95,6 +105,31 @@ def decide(row, config):
             return int(row["combined"] >= COMBINED_THRESHOLD)
         return int(row["blocked"])
     raise ValueError(config)
+
+
+def align_modsec(rows, ms_rows):
+    """
+    Pair the external WAF session with the internal one by position within each
+    generator. The generators are seeded, so the two sessions issue the same
+    request sequence; this verifies that assumption by checking the labels agree
+    at every position rather than trusting it.
+    """
+    by_gen = defaultdict(list)
+    for r in ms_rows:
+        by_gen[r["generator"]].append(r)
+    cursor = defaultdict(int)
+    out = []
+    for r in rows:
+        g = r["generator"]
+        i = cursor[g]
+        cursor[g] += 1
+        if i >= len(by_gen.get(g, [])):
+            return None, f"{g} shorter in the WAF session"
+        m = by_gen[g][i]
+        if m["y"] != r["y"]:
+            return None, f"label mismatch in {g} at position {i}"
+        out.append(int(m["blocked"]))
+    return out, None
 
 
 def metrics(y, pred):
@@ -162,10 +197,23 @@ def main():
           f"({sum(y)} attack / {len(y) - sum(y)} benign)\n")
 
     preds = {c: [decide(r, c) for r in rows] for c in CONFIGS}
-    results = {c: metrics(y, preds[c]) for c in CONFIGS}
+    order = list(CONFIGS)
 
-    # confidence intervals on the two headline metrics
-    for c in CONFIGS:
+    # ---- external WAF baseline, if that session was recorded ------------
+    ms_rows = load(TRAFFIC_MODSEC) if TRAFFIC_MODSEC.exists() else []
+    if ms_rows:
+        aligned, mismatch = align_modsec(rows, ms_rows)
+        if aligned is None:
+            print(f"NOTE: ModSecurity session does not align with the internal "
+                  f"session ({mismatch}); excluded from the comparison.\n")
+        else:
+            preds[MODSEC] = aligned
+            order.insert(3, MODSEC)
+            print(f"ModSecurity baseline loaded: {len(ms_rows)} requests, "
+                  f"aligned by position within each generator\n")
+
+    results = {c: metrics(y, preds[c]) for c in order}
+    for c in order:
         results[c]["f1_ci95"] = bootstrap_ci(y, preds[c], "f1")
         results[c]["fpr_ci95"] = bootstrap_ci(y, preds[c], "fpr")
 
@@ -176,7 +224,7 @@ def main():
     print(f"{'config':<10}{'acc':>8}{'prec':>8}{'recall':>9}{'F1':>8}"
           f"{'FPR':>8}{'  F1 95% CI':>20}{'  blocked':>11}")
     print("-" * 92)
-    for c in CONFIGS:
+    for c in order:
         m = results[c]
         lo, hi = m["f1_ci95"]
         print(f"{c:<10}{m['accuracy']:>8.4f}{m['precision']:>8.4f}{m['recall']:>9.4f}"
@@ -188,7 +236,7 @@ def main():
     print("McNEMAR EXACT TEST - hybrid vs each baseline (same requests)")
     print("=" * 92)
     sig = {}
-    for c in ("none", "rules", "ml"):
+    for c in [x for x in order if x != "hybrid"]:
         t = mcnemar(y, preds[c], preds["hybrid"])
         sig[f"hybrid_vs_{c}"] = t
         if t.get("n_discordant"):
@@ -209,14 +257,16 @@ def main():
     for i, r in enumerate(rows):
         if r["y"] == 1:
             fam[r["attack_type"]].append(i)
-    print(f"{'attack type':<26}{'n':>6}{'rules':>10}{'ml':>10}{'hybrid':>10}")
+    detail = [c for c in order if c != "none"]
+    hdr = "".join(f"{c:>10}" for c in detail)
+    print(f"{'attack type':<26}{'n':>6}{hdr}")
     print("-" * 92)
     per_type = {}
     for t in sorted(fam):
         ix = fam[t]
-        row = {c: sum(preds[c][i] for i in ix) / len(ix) for c in ("rules", "ml", "hybrid")}
+        row = {c: sum(preds[c][i] for i in ix) / len(ix) for c in detail}
         per_type[t] = {**row, "n": len(ix)}
-        print(f"{t:<26}{len(ix):>6}{row['rules']:>10.1%}{row['ml']:>10.1%}{row['hybrid']:>10.1%}")
+        print(f"{t:<26}{len(ix):>6}" + "".join(f"{row[c]:>10.1%}" for c in detail))
 
     # ---- latency --------------------------------------------------------
     all_lat = [r["latency"] for r in rows if r["latency"] is not None]
@@ -245,52 +295,56 @@ def main():
 
     store = {"n_requests": len(rows), "n_attack": int(sum(y)),
              "thresholds": {"combined": COMBINED_THRESHOLD, "ml": ML_THRESHOLD},
+             "config_order": order,
              "configs": results, "significance": sig,
              "per_attack_type": per_type, "latency": lat}
     OUT_JSON.write_text(json.dumps(store, indent=2), encoding="utf-8")
     print(f"\nwrote {OUT_JSON}")
 
     if not args.no_figures:
-        make_figure(results, per_type, lat)
+        make_figure(results, per_type, lat, order)
 
 
-def make_figure(results, per_type, lat):
+def make_figure(results, per_type, lat, order):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update({"font.size": 9, "figure.dpi": 150})
-    COL = {"none": "#808080", "rules": "#1F4E79", "ml": "#C55A11", "hybrid": "#375623"}
+    COL = {"none": "#808080", "rules": "#1F4E79", "ml": "#C55A11",
+           "modsec": "#7030A0", "hybrid": "#375623"}
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
 
     keys = ["precision", "recall", "f1", "fpr"]
-    x = np.arange(len(keys)); w = 0.2
-    for i, c in enumerate(CONFIGS):
+    x = np.arange(len(keys))
+    n = len(order); w = 0.8 / n
+    for i, c in enumerate(order):
         vals = [results[c][k] for k in keys]
-        bars = axes[0].bar(x + (i - 1.5) * w, vals, w, label=c, color=COL[c])
+        bars = axes[0].bar(x + (i - (n - 1) / 2) * w, vals, w, label=c, color=COL.get(c, "#444"))
         for b in bars:
             if b.get_height() > 0.01:
                 axes[0].text(b.get_x() + b.get_width() / 2, b.get_height() + 0.02,
-                             f"{b.get_height():.2f}", ha="center", fontsize=6.5)
+                             f"{b.get_height():.2f}", ha="center", fontsize=6)
     axes[0].set_xticks(x, ["Precision", "Recall", "F1", "FPR"])
     axes[0].set_ylim(0, 1.15)
     axes[0].set_ylabel("Score")
-    axes[0].legend(frameon=False, fontsize=8, ncol=4, loc="upper center")
+    axes[0].legend(frameon=False, fontsize=7.5, ncol=n, loc="upper center")
     axes[0].grid(axis="y", alpha=0.25, linewidth=0.5)
     axes[0].set_title("Detection performance by configuration", fontsize=10)
 
+    detail = [c for c in order if c != "none"]
     types = sorted(per_type)
-    x2 = np.arange(len(types)); w2 = 0.26
-    for i, c in enumerate(["rules", "ml", "hybrid"]):
-        vals = [per_type[t][c] for t in types]
-        axes[1].bar(x2 + (i - 1) * w2, vals, w2, label=c, color=COL[c])
+    x2 = np.arange(len(types)); m = len(detail); w2 = 0.8 / m
+    for i, c in enumerate(detail):
+        vals = [per_type[t].get(c, 0.0) for t in types]
+        axes[1].bar(x2 + (i - (m - 1) / 2) * w2, vals, w2, label=c, color=COL.get(c, "#444"))
     axes[1].set_xticks(x2, [t.replace("sqli_", "") for t in types],
                        rotation=30, ha="right", fontsize=7.5)
     axes[1].set_ylim(0, 1.15)
     axes[1].set_ylabel("Detection rate")
-    axes[1].legend(frameon=False, fontsize=8, ncol=3, loc="upper center")
+    axes[1].legend(frameon=False, fontsize=7.5, ncol=m, loc="upper center")
     axes[1].grid(axis="y", alpha=0.25, linewidth=0.5)
     axes[1].set_title("Detection rate by attack type", fontsize=10)
 

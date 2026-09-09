@@ -152,9 +152,9 @@ def main():
     r = sheet_title(ws, "Detection configuration comparison",
                     "Paired design: all four configurations scored on byte-identical traffic, "
                     "derived from separately recorded rule and ML scores.")
-    order = ["none", "rules", "ml", "hybrid"]
-    labels = {"none": "No detection", "rules": "Rules only",
-              "ml": "ML only", "hybrid": "Hybrid (proposed)"}
+    order = cfg.get("config_order", ["none", "rules", "ml", "hybrid"])
+    labels = {"none": "No detection", "rules": "Rules only", "ml": "ML only",
+              "modsec": "ModSecurity (OWASP CRS)", "hybrid": "Hybrid (proposed)"}
     rows = []
     for c in order:
         m = cfg["configs"][c]
@@ -188,13 +188,16 @@ def main():
                     "The core evidence for the hybrid design: the two stages fail on "
                     "different attack families, and the combination covers both.")
     pt = cfg["per_attack_type"]
-    rows = [[t.replace("sqli_", "SQLi - "), pt[t]["n"], pt[t]["rules"], pt[t]["ml"], pt[t]["hybrid"]]
+    detail = [c for c in order if c != "none"]
+    rows = [[t.replace("sqli_", "SQLi - "), pt[t]["n"]] + [pt[t].get(c, 0.0) for c in detail]
             for t in sorted(pt)]
     top = r
-    r = write_table(ws, r, ["Attack type", "n", "Rules only", "ML only", "Hybrid"], rows,
-                    widths=[26, 8, 13, 13, 13], pct_cols=(3, 4, 5))
+    ncol = 2 + len(detail)
+    r = write_table(ws, r, ["Attack type", "n"] + [labels[c] for c in detail], rows,
+                    widths=[26, 8] + [15] * len(detail),
+                    pct_cols=tuple(range(3, ncol + 1)))
 
-    data = Reference(ws, min_col=3, max_col=5, min_row=top, max_row=top + len(rows))
+    data = Reference(ws, min_col=3, max_col=ncol, min_row=top, max_row=top + len(rows))
     cats = Reference(ws, min_col=1, min_row=top + 1, max_row=top + len(rows))
     bar_chart(ws, f"A{r + 2}", "Detection rate by attack type", "Detection rate", data, cats,
               height=9, width=18)
