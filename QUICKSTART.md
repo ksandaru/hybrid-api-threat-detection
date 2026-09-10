@@ -17,12 +17,14 @@ download.
 ## What you need before starting
 
 - A Windows 10 or 11 laptop.
-- The file **`shipping-kit.zip`** (about 44 MB) — get this from whoever sent
-  you this guide, the same way you'd receive any file (email, USB stick,
-  shared drive).
+- A copy of this repository, plus the trained models in `ml/models/` — those are
+  build output rather than source, so get them from whoever sent you this.
 - An internet connection, for step 1 and step 4 only. Nothing after that needs
   the internet.
 - Nothing else. Not Python, not any programming tools — genuinely nothing else.
+
+> Prefer to run it without Docker, with Python and Node directly? Use
+> [`USER_MANUAL.md`](USER_MANUAL.md) instead of this guide.
 
 ---
 
@@ -45,11 +47,10 @@ yes/accept — that's expected and part of a normal install.
 
 ## Step 2 — Get the project files ready
 
-1. Find `shipping-kit.zip` (check your Downloads folder).
-2. Right-click it → **Extract All...** → choose somewhere easy to find, like
-   your Desktop → click **Extract**.
-3. You'll now have a folder called `shipping-kit` with a few files in it.
-   Open that folder in File Explorer.
+1. Put the project folder somewhere easy to find, like your Desktop. If it
+   arrived as a zip, right-click it → **Extract All...** → **Extract**.
+2. Open that folder in File Explorer. You should see `docker-compose.yml` in it
+   — that is the file the commands below need.
 
 ---
 
@@ -171,6 +172,6 @@ again later brings it straight back.
 - **A red error mentioning "port is already allocated"** — something else on
   this laptop is already using that address. Nothing else to install; just
   ask whoever gave you this project for help.
-- **Anything else** — take a screenshot of the terminal window and send it to
-  whoever gave you this kit. They have a longer troubleshooting guide
-  (`DEMO_GUIDE.md`) covering less common problems in detail.
+- **Anything else** — [`USER_MANUAL.md`](USER_MANUAL.md) section 9 covers the
+  less common problems in detail. Failing that, take a screenshot of the
+  terminal window and send it to whoever gave you this.

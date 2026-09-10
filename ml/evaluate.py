@@ -1,27 +1,22 @@
 """
-Phase 9 - offline comparative evaluation.
+Offline comparative evaluation.
 
-Answers three questions the dissertation needs evidence for:
+Answers two questions:
 
 1. How do the individual models and the combined pipeline perform on the
-   internal test split? (Reproduces the Phase 4/5 figures independently of
-   train.py, from the saved artefacts, so the numbers can be regenerated
-   without retraining.)
+   internal test split? Rebuilt from the saved artefacts rather than from
+   train.py, so the figures regenerate without retraining.
 
-2. **How much performance is lost on data from a completely different
-   source?** The ATRDF 2023 corpus was never trained on, never validated
-   against, and never used to select the threshold. Evaluating on it is the
-   only honest test of whether this generalises beyond the data it learned
-   from, and the drop against the internal test split is the headline result
-   of this phase.
+2. How much is lost on data from a different source? ATRDF 2023 was never
+   trained on, validated against, or used to pick the threshold. The drop
+   against the internal split is the headline result.
 
-3. Which configuration is actually better? The live-traffic comparison of
-   rule-only / ML-only / hybrid lives in evaluation/compare_configs.py,
-   because it needs the recorded per-request scores rather than the corpus.
+The live-traffic comparison of rule-only / ML-only / hybrid lives in
+evaluation/compare_configs.py -- it needs recorded per-request scores rather
+than the corpus.
 
-Nothing here retrains anything. It loads the artefacts that ml/train.py
-produced and reads the same operating point the inference service uses, so
-what is measured is what is deployed.
+Nothing here retrains. It reads the same operating point the inference service
+uses, so what is measured is what is deployed.
 
 Run:
     ml/venv/Scripts/python.exe ml/evaluate.py

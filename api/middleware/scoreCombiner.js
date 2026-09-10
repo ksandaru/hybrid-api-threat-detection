@@ -26,20 +26,15 @@ function clamp01(x) {
   return Math.min(1, Math.max(0, x));
 }
 
-/**
- * @param {number} ruleScore  rule engine score in [0, 1]
- * @param {number|null} mlScore  ML score in [0, 1], or null when unavailable
- * @param {object} opts  { strategy, wRule, wMl }
- * @returns {{ score: number, strategy: string, mlUsed: boolean }}
- */
+// ruleScore and mlScore are both in [0, 1]; mlScore is null when the service
+// was unavailable or never consulted. Returns { score, strategy, mlUsed }.
 function combine(ruleScore, mlScore, opts = {}) {
   const rule = clamp01(ruleScore);
   const name = opts.strategy || DEFAULT_STRATEGY;
   const fn = STRATEGIES[name] || STRATEGIES[DEFAULT_STRATEGY];
 
-  // No ML score means the service was unavailable, or this request never
-  // reached it. Fall back to the rule verdict unchanged; do not treat a missing
-  // score as evidence of innocence, and do not treat it as evidence of guilt.
+  // A missing ML score is not evidence either way, so fall back to the rule
+  // verdict unchanged rather than scoring the absence.
   if (mlScore === null || mlScore === undefined) {
     return { score: rule, strategy: `${name} (rule-only fallback)`, mlUsed: false };
   }

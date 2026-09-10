@@ -1,22 +1,16 @@
 /**
- * Phase 6 integration check.
- *
- * Exercises the assembled pipeline against a running API. Verifies the three
- * things the specification asks of this phase:
+ * End-to-end integration check against a running API. Verifies that:
  *   - an attack the rules miss but the classifier catches is blocked
  *   - benign traffic still passes
- *   - with inference unavailable, the API keeps serving on the rule verdict
- *
- * and one thing the specification does not ask for but Phases 4 and 5 made
- * necessary: that the hybrid does not detect *less* than rules alone on the
- * behavioural attacks, where the classifier carries no signal.
+ *   - with inference down, the API keeps serving on the rule verdict
+ *   - the hybrid never detects *less* than rules alone on the behavioural
+ *     attacks, where the classifier carries no signal
  *
  * Usage:
  *   node api/test/hybridIntegration.js            expects ML service up
  *   node api/test/hybridIntegration.js --no-ml    expects ML service down
  *
- * The API must be running with DETECTION_MODE=hybrid. The script restarts
- * nothing; it tests whatever is listening.
+ * Needs DETECTION_MODE=hybrid. Restarts nothing; tests whatever is listening.
  */
 
 const axios = require('axios');
@@ -63,15 +57,11 @@ async function main() {
   // behavioural window and block traffic that should pass.
   const user = `probe_${Date.now()}`;
 
-  // Refuse to run against a dirty sliding window.
-  //
-  // A fresh username is not enough: the behavioural features key on the source
-  // address, and every run of this script uses the same one. Run it twice
-  // without restarting the API and the second run starts with ~30 requests
-  // already inside the 60-second window, so the rate rules fire immediately and
-  // benign traffic is blocked. The failures then appear several checks later,
-  // as a detection defect rather than as leftover state, which is exactly how
-  // this cost an hour once already.
+  // Refuse to run against a dirty sliding window. A fresh username is not
+  // enough -- the behavioural features key on the source address, and every run
+  // uses the same one. Back-to-back runs start with ~30 events already in the
+  // window, the rate rules fire, and the failures surface several checks later
+  // looking like a detection defect rather than leftover state.
   const pre = await http.get('/health');
   const occupancy = (pre.data && pre.data.window) || {};
   if ((occupancy.events || 0) > 0) {
@@ -86,17 +76,10 @@ async function main() {
 
   await http.post('/api/auth/register', { username: user, password: 'pass1234' });
 
-  // Latency is measured first, on a clean sliding window, and kept to 25
-  // requests so the request-rate rules cannot fire and change what is being
-  // measured. Running it after the attack cases would measure a source already
-  // flagged as suspicious, which is a different thing entirely. Phase 9
-  // measures under real load with the attack-simulation harness.
-  // The whole run is deliberately kept under 30 requests from this source.
-  // RATE_ELEVATED fires above 30 requests per minute, and once it does every
-  // subsequent request carries a 0.4 rule score that combines with the ML term
-  // and blocks legitimate traffic. That is the rules working as designed; a
-  // test that exceeded it would be measuring a source the system has correctly
-  // flagged as bursty, not measuring benign traffic.
+  // Latency first, on a clean window. The whole run stays under 30 requests
+  // from this source: RATE_ELEVATED fires above that, and every later request
+  // then carries a 0.4 rule score that blocks legitimate traffic. Measuring
+  // after the attack cases would profile a source already flagged as bursty.
   console.log('=== added latency, benign path (8 requests, clean window) ===');
   const ms = [];
   for (let i = 0; i < 8; i += 1) {
@@ -111,13 +94,10 @@ async function main() {
   ms.sort((a, b) => a - b);
   const pct = (p) => ms[Math.min(ms.length - 1, Math.floor((p / 100) * ms.length))];
   console.log(`        n=${ms.length}  p50=${pct(50).toFixed(1)}ms  p95=${pct(95).toFixed(1)}ms  p99=${pct(99).toFixed(1)}ms`);
-  // NFR1 sets a 100 ms budget for added latency, and that is the figure to
-  // hold the system to while the inference service is reachable. With it down
-  // the number means something different: under Compose a stopped container
-  // does not refuse the connection, it swallows it, so every request waits out
-  // ML_TIMEOUT_MS in full before falling back to the rule verdict. Roughly
-  // 250 ms is then the expected, designed behaviour of the fail-open path --
-  // asserting 100 ms there fails the system for doing what NFR2 requires.
+  // NFR1's 100 ms budget applies while inference is reachable. With it down a
+  // stopped container swallows the connection rather than refusing it, so every
+  // request waits out ML_TIMEOUT_MS before falling back -- ~250 ms is then the
+  // designed fail-open behaviour, and asserting 100 ms would fail NFR2 working.
   const timeoutMs = Number(process.env.ML_TIMEOUT_MS || 250);
   const budget = EXPECT_ML ? 100 : timeoutMs + 100;
   check(EXPECT_ML
@@ -129,13 +109,10 @@ async function main() {
                 'not by detection work');
   }
 
-  // Benign traffic is measured as a rate rather than asserted per request.
-  // Phase 5 established that the classifier has a real false positive rate on
-  // this API's traffic shape, because the corpus benign rows do not cover it;
-  // asserting that every individual benign request passes would encode an
-  // expectation the system is known not to meet, and would fail for a reason
-  // this phase cannot fix. Phase 8 generates realistic benign traffic and is
-  // where that rate gets measured properly and the threshold recalibrated.
+  // Measured as a rate, not asserted per request. The classifier has a real
+  // false positive rate on this API's traffic shape because the corpus benign
+  // rows do not cover it, so a per-request assertion would encode an
+  // expectation the system is known not to meet.
   console.log('\n=== benign traffic (false positive rate measured, not asserted per request) ===');
   const benign = ['laptop', 'wireless mouse', 'bluetooth speaker', 'office chair', 'usb-c hub'];
   let allowed = 0;
@@ -145,13 +122,10 @@ async function main() {
     if (r.status === 200) allowed += 1;
     else blockedTerms.push(`${q} (${r.data && r.data.score})`);
   }
-  // The login goes in the same measured bucket, and for an instructive reason.
-  // payload_length is the classifier's second most important feature, and the
-  // corpus associates length with attacks, so a login with a longer username
-  // scores higher purely because the request is longer. A short username passes
-  // where the generated one here does not. That is the model using length as a
-  // proxy for maliciousness rather than reading the request, and it is exactly
-  // what Phase 8 needs to measure and correct.
+  // The login goes in the same bucket, instructively: payload_length is the
+  // classifier's second most important feature and the corpus ties length to
+  // attacks, so a longer username scores higher purely for being longer. Length
+  // as a proxy for maliciousness -- what the attack simulation exists to correct.
   const loginRes = await login(user, 'pass1234');
   if (loginRes.status === 200) allowed += 1;
   else blockedTerms.push(`valid login (${loginRes.data && loginRes.data.score})`);

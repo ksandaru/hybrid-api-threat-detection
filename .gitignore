@@ -53,4 +53,8 @@ Thumbs.db
 shipping-kit.zip
 *.zip
 
+# Retired material. legacy/README.md and the two tracked items stay in Git;
+# the downloaded research data under it does not.
+legacy/dataset-archives/
+
 evaluation/traffic_modsec/*

@@ -90,7 +90,7 @@ def default_flow_features() -> dict:
 
     Real values are only meaningful when computed over a live sliding
     window of requests from the same source IP (see
-    api/middleware/featureExtractor.js, built in Phase 3).
+    api/middleware/featureExtractor.js).
     """
     return {name: 0.0 for name in FLOW_FEATURES}
 

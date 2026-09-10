@@ -1,10 +1,10 @@
 -- Schema for the request log.
 --
--- api/db/pool.js has written to this table since Phase 2, but nothing created
--- it until the stack gained a database. The write path fails soft, so its
+-- api/db/pool.js wrote to this table well before anything created it, back
+-- when the stack had no database. The write path fails soft, so its
 -- absence degraded analysis rather than detection.
 --
--- Nothing on the request path reads from this table. It exists so the Phase 9
+-- Nothing on the request path reads from this table. It exists so the
 -- evaluation can reconstruct what the detector saw and decided.
 
 CREATE TABLE IF NOT EXISTS request_log (
@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS request_log (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Phase 9 queries this by time window, by decision, and by source when
--- reconstructing an attack sequence.
+-- The evaluation queries this by time window, by decision, and by source
+-- when reconstructing an attack sequence.
 CREATE INDEX IF NOT EXISTS request_log_created_at_idx ON request_log (created_at);
 CREATE INDEX IF NOT EXISTS request_log_decision_idx   ON request_log (decision);
 CREATE INDEX IF NOT EXISTS request_log_ip_idx         ON request_log (ip);

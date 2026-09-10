@@ -1,11 +1,10 @@
 /**
- * Feature contract parity test.
+ * Feature contract parity test -- the check that enforces NFR3.
  *
- * Proves that api/middleware/featureExtractor.js and ml/features.py compute
- * identical payload feature vectors for identical input. This is the check
- * that enforces NFR3: if the two halves of the contract ever diverge, the
- * models receive inputs that do not mean what they were trained to mean,
- * and they will keep returning confident predictions that happen to be wrong.
+ * api/middleware/featureExtractor.js and ml/features.py must compute identical
+ * payload vectors for identical input. If they drift the models get inputs that
+ * no longer mean what they were trained to mean, and nothing errors: they just
+ * keep returning confident predictions that are wrong.
  *
  * Run:  node api/test/featureParity.js
  * Exits non-zero on any mismatch, so it can gate a commit.

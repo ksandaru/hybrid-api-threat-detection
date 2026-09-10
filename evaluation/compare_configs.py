@@ -1,26 +1,21 @@
 """
-Phase 9 - comparative evaluation of detection configurations on live traffic.
+Comparative evaluation of detection configurations on live traffic.
 
-Compares four configurations on the recorded traffic from Phase 8:
+Compares four configurations on the recorded simulation traffic:
 
     none    no detection - the no-control baseline
     rules   signature engine only
     ml      payload classifier only
     hybrid  both, combined by noisy-OR (the proposed framework)
 
-The comparison is **paired**: every configuration is scored on the byte-identical
-set of requests, because the detection middleware records the rule score and the
-ML score separately for each request it inspects. Deriving all four decisions
-from one recorded run is methodologically stronger than running the stack four
-times, since it removes run-to-run variation in the generated traffic and lets
-the comparison use McNemar's test, which is the correct test for two classifiers
-evaluated on the same samples.
+The comparison is paired: the middleware records the rule score and the ML score
+separately for every request, so all four verdicts come from one recorded run of
+byte-identical traffic. That removes run-to-run variation in the generator and is
+what licenses McNemar's test.
 
-Significance is reported with McNemar's exact test rather than a t-test across
-repeated runs. The two answer different questions: a t-test asks whether mean
-performance differs across runs, whereas McNemar asks whether the two detectors
-disagree asymmetrically on the same requests - which is the question here, and it
-does not require the runs to be repeated.
+McNemar's exact test rather than a t-test across repeated runs -- a t-test asks
+whether mean performance differs between runs, McNemar asks whether two detectors
+disagree asymmetrically on the same requests, which is the question here.
 
 Run:
     ml/venv/Scripts/python.exe evaluation/compare_configs.py
@@ -48,13 +43,11 @@ ML_THRESHOLD = 0.77
 
 CONFIGS = ["none", "rules", "ml", "hybrid"]
 
-# ModSecurity v3 with the OWASP Core Rule Set, run as a reverse proxy in front
-# of the same API with its own detection disabled, so the WAF is the only
-# control. Recorded in a separate session because it is an external system and
-# cannot be derived from the internal scores. The generators are seeded, so the
-# request sequence is identical by construction and the two sessions pair by
-# position within each generator - stated here because that assumption is what
-# makes the McNemar comparison against it legitimate.
+# ModSecurity v3 + OWASP CRS as a reverse proxy in front of the same API, with
+# our own detection off. External, so it needs its own session and cannot be
+# derived from the internal scores. The generators are seeded, so the request
+# sequence is identical and the sessions pair by position -- that assumption is
+# what makes the McNemar comparison against it legitimate.
 MODSEC = "modsec"
 
 

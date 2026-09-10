@@ -16,7 +16,7 @@ const app = express();
 if (config.trustProxy) {
   app.set('trust proxy', true);
   console.warn('[config] TRUST_PROXY=1: X-Forwarded-For is trusted as the ' +
-               'request source. Intended for the Phase 8 simulation harness ' +
+               'request source. Intended for the attack simulation harness ' +
                'only -- behavioural detection is bypassable in this mode.');
 }
 

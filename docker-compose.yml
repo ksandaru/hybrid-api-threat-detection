@@ -4,8 +4,8 @@
 #
 # Prerequisite: ml/models must contain trained artefacts. They are bind-mounted
 # rather than copied into the image, because they are not in version control.
-# Run this first if the directory is empty (see DEMO_GUIDE.md for the full path
-# from a clean machine):
+# Run this first if the directory is empty (USER_MANUAL.md section 7 covers the
+# full path from a clean machine):
 #
 #   .\ml\venv\Scripts\python ml\preprocess.py
 #   .\ml\venv\Scripts\python ml\train.py
@@ -44,14 +44,13 @@ services:
   ml:
     build:
       context: ./ml
-    # Name it so it can be pushed to / pulled from Docker Hub. Harmless on this
-    # machine: with the source present, `docker compose up` still builds locally
-    # as before. See DEMO_GUIDE.md "Shipping to another machine".
+    # Named so it can be pushed to or pulled from a registry. Harmless locally:
+    # with the source present, `docker compose up` still builds as before.
     image: ${DOCKERHUB_USER:-local}/hybrid-api-threat-detection-ml:latest
     environment:
       PORT: 8000
       # Weights and threshold come from the trained artefact. Set these only to
-      # override for a Phase 9 sweep.
+      # override when sweeping configurations.
       W_RF: ${W_RF:-}
       W_XGB: ${W_XGB:-}
       W_ISO: ${W_ISO:-}
@@ -85,7 +84,7 @@ services:
       COMBINE_STRATEGY: ${COMBINE_STRATEGY:-noisy_or}
       ML_TIMEOUT_MS: ${ML_TIMEOUT_MS:-250}
       DETECTION_TRACE: ${DETECTION_TRACE:-0}
-      # Off unless the Phase 8 harness needs distinct simulated sources.
+      # Off unless the simulation harness needs distinct simulated sources.
       # See api/config/index.js for why this is not a safe default.
       TRUST_PROXY: ${TRUST_PROXY:-0}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-local-env}

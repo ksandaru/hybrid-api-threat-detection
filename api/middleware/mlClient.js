@@ -3,8 +3,8 @@ const config = require('../config');
 
 const TIMEOUT_MS = parseInt(process.env.ML_TIMEOUT_MS, 10) || 250;
 
-// Reusing one client keeps the connection pool warm; a fresh agent per request
-// would add a TCP handshake to a path that is already latency-constrained.
+// One shared client keeps the connection pool warm. A fresh agent per request
+// would put a TCP handshake on a path that is already latency-constrained.
 const client = axios.create({
   baseURL: config.mlServiceUrl,
   timeout: TIMEOUT_MS,
@@ -13,10 +13,9 @@ const client = axios.create({
 
 let consecutiveFailures = 0;
 
-// The service's own decision boundary, discovered from /meta. The middleware
-// needs it to put the ML score on the same scale as the rule score before
-// combining -- see scoreCombiner.js. Discovered lazily and cached, so a service
-// restart with different weights is picked up without restarting the API.
+// The service's decision boundary, read from /meta and used to put the ML score
+// on the rule score's scale before combining (see scoreCombiner.js). Fetched
+// lazily so a service restart with new weights is picked up without an API restart.
 let mlBoundary = null;
 
 async function boundary() {
@@ -28,27 +27,21 @@ async function boundary() {
       console.log(`[mlClient] inference decision boundary = ${mlBoundary}`);
     }
   } catch (err) {
-    // Not fatal. Without it the raw score is used, which is the pre-alignment
-    // behaviour; the combiner treats a null boundary as "do not rescale".
+    // Not fatal: the combiner reads a null boundary as "do not rescale".
   }
   return mlBoundary;
 }
 
-/**
- * Score one feature vector.
- *
- * Resolves to:
- *   { ok: true,  score, isAttack, serviceLatencyMs, roundTripMs, details }
- *   { ok: false, error, roundTripMs }
- */
+// Score one feature vector. Resolves to
+//   { ok: true,  score, isAttack, serviceLatencyMs, roundTripMs, details }
+//   { ok: false, error, roundTripMs }
 async function predict(features) {
   const started = process.hrtime.bigint();
   try {
     const res = await client.post('/predict', { features });
     const roundTripMs = Number(process.hrtime.bigint() - started) / 1e6;
 
-    // The service reports its own failures in the body rather than as a status
-    // code, so a 200 is not on its own sufficient.
+    // The service reports failures in the body, so a 200 alone is not enough.
     if (!res.data || typeof res.data.score !== 'number' || res.data.error) {
       consecutiveFailures += 1;
       return {
@@ -74,8 +67,8 @@ async function predict(features) {
   } catch (err) {
     const roundTripMs = Number(process.hrtime.bigint() - started) / 1e6;
     consecutiveFailures += 1;
-    // Log the first failure and then every tenth, so an outage is visible
-    // without flooding the log on every request for its duration.
+    // First failure, then every tenth: an outage stays visible without the log
+    // filling up for its whole duration.
     if (consecutiveFailures === 1 || consecutiveFailures % 10 === 0) {
       const reason = err.code === 'ECONNABORTED'
         ? `timeout after ${TIMEOUT_MS}ms`

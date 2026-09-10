@@ -184,7 +184,7 @@ detail.
 
 ## 5. Where the WAF tier belongs
 
-The Phase 9 comparison found that ModSecurity with the OWASP Core Rule Set
+The comparative evaluation found that ModSecurity with the OWASP Core Rule Set
 achieves precision 1.0000 at a 0.0% false positive rate on this project's
 benign traffic — better than this framework on both counts — while scoring 0%
 on brute force and credential stuffing.
@@ -215,7 +215,7 @@ the threshold and stay beneath it.
 
 **Alarms worth setting**, each derived from something the evaluation found:
 
-- Block rate above a baseline — the Phase 8 false-positive incident (17.5% of
+- Block rate above a baseline — the false-positive incident found in simulation (17.5% of
   legitimate logins blocked) would have been caught within minutes by this.
 - `ml` task `ready: false`, or a sustained rise in fail-open fallbacks — under
   Compose a stopped dependency costs the full 250 ms timeout per request, so an

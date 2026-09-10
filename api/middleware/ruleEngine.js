@@ -15,11 +15,8 @@ const THRESHOLDS = {
 const HIGH = 'high';
 const MEDIUM = 'medium';
 
-/**
- * Each rule is a predicate over the feature vector plus a severity and a
- * weight. Keeping them as data rather than as a chain of if-statements means
- * the active rule set can be printed, tuned and reported in the evaluation.
- */
+// Rules as data, not a chain of if-statements: the active set can be printed,
+// reweighted and reported in the evaluation without touching the engine.
 const RULES = [
   {
     id: 'SQLI_UNION_SELECT',
@@ -80,10 +77,9 @@ const RULES = [
     severity: MEDIUM,
     weight: 0.7,
     message: 'Statement separator combined with SQL keywords',
-    // Weighted to reach the default threshold unaided: a semicolon plus two
-    // or more SQL keywords in a query parameter is a stacked-query attempt
-    // and has little legitimate use. Left at medium severity rather than
-    // high so the ML stage is still consulted in hybrid mode.
+    // Enough to clear the threshold alone; a semicolon plus two SQL keywords in
+    // a query parameter has little legitimate use. Medium, not high, so the ML
+    // stage still gets consulted.
     test: (f) => f.semicolon_count >= 1 && f.sql_keyword_count >= 2,
   },
   {
@@ -91,10 +87,9 @@ const RULES = [
     severity: MEDIUM,
     weight: 0.5,
     message: 'Tautology pattern interleaved with comment syntax (obfuscation)',
-    // Catches the inline-comment evasion described by Qu et al. (2024), e.g.
-    // /**/or/**/1/**/=/**/1, where the comment markers split the tautology so
-    // that no single strong indicator fires. Composes with SQLI_TAUTOLOGY_WEAK
-    // (0.4) to 0.9, which clears the threshold; neither alone would.
+    // Inline-comment evasion, e.g. /**/or/**/1/**/=/**/1, where the markers
+    // split the tautology so no single strong indicator fires. Composes with
+    // SQLI_TAUTOLOGY_WEAK (0.4) to 0.9; neither clears the threshold alone.
     test: (f) => f.has_or_equals === 1 && f.has_comment === 1,
   },
   {
@@ -102,9 +97,8 @@ const RULES = [
     severity: MEDIUM,
     weight: 0.5,
     message: 'Quote character co-occurring with SQL comment syntax',
-    // Deliberately medium. The has_comment flag also covers '#', which is
-    // common in benign text ("item #5"), so promoting this to high severity
-    // would cost false positives. Phase 9 sweeps these weights.
+    // Medium on purpose: has_comment also covers '#', common in benign text
+    // ("item #5"), so high severity here would cost false positives.
     test: (f) => f.single_quote_count >= 1 && f.has_comment === 1,
   },
   {

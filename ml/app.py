@@ -1,13 +1,11 @@
-"""FastAPI inference service (Phase 5).
+"""FastAPI inference service.
 
-Loads the artefacts produced by ml/train.py once at startup and scores feature
-vectors sent by the Express detection middleware.
+Loads the artefacts from ml/train.py once at startup and scores feature vectors
+sent by the Express detection middleware.
 
-The interface is deliberately narrow. The middleware sends a flat object of
-named features and receives a score; it knows nothing about which models exist
-or how their outputs are combined. Either side can therefore be replaced without
-touching the other, which is what lets the Phase 9 evaluation construct its four
-configurations by substitution rather than by editing the request path.
+The interface is narrow by design: the middleware sends named features and gets
+back a score, knowing nothing about which models exist or how they combine. That
+is what lets the evaluation swap configurations without editing the request path.
 
 Endpoints:
     GET  /health   readiness, loaded artefacts, model versions
@@ -17,19 +15,16 @@ Endpoints:
 Scoring:
     score = w_rf * P_rf(attack) + w_xgb * P_xgb(attack) + w_iso * normalised_iso
 
-Random Forest and XGBoost emit calibrated probabilities directly. Isolation
-Forest emits an unbounded anomaly score, which is mapped onto [0, 1] using
-percentile bounds of the training-split score distribution recorded by
-ml/train.py. Without that mapping the third term would silently dominate or
-vanish depending on the scale the forest happened to produce.
+Random Forest and XGBoost emit probabilities directly. Isolation Forest emits an
+unbounded anomaly score, mapped onto [0, 1] using percentile bounds recorded by
+ml/train.py; without that the third term would dominate or vanish depending on
+whatever scale the forest happened to produce.
 
-Known limitation, measured in Phase 4 and repeated here because it bears
-directly on how this score should be used: the classifiers assign zero
-importance to four of the five flow features, because those are zero-filled
-throughout the offline corpus. This service therefore carries useful signal for
-SQL injection but close to none for brute force or credential stuffing. The rule
-engine in the middleware computes those features live and is the stage that
-detects them. Weighting in Phase 6 must account for that.
+Known limitation: the classifiers give zero importance to four of the five flow
+features, which are zero-filled throughout the offline corpus. This service has
+useful signal for SQL injection and almost none for brute force or credential
+stuffing -- the middleware's rule engine computes those features live and is what
+actually detects them.
 """
 
 import json
@@ -45,9 +40,9 @@ from pydantic import BaseModel, Field
 
 MODEL_DIR = Path(__file__).parent / "models"
 
-# Weights and threshold come from the artefact written by ml/train.py, so the
-# service scores exactly the combination the operating point was measured
-# against. Environment variables override, which is how Phase 9 sweeps them.
+# Weights and threshold come from the artefact ml/train.py wrote, so the service
+# scores the same combination the operating point was measured against. The
+# environment overrides them, which is how the evaluation sweeps configurations.
 W_RF = W_XGB = W_ISO = None
 ATTACK_THRESHOLD = None
 

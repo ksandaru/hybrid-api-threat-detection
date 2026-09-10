@@ -31,9 +31,8 @@ ILLUSTRATIVE = [
     ("SQLi obfuscated", "/search/vulnerable q=/**/or/**/1/**/=/**/1"),
 ]
 
-# Behavioural vectors carry no payload signal. Included to demonstrate the
-# Phase 4 finding that the models cannot express these attacks, rather than to
-# hide it.
+# Behavioural vectors carry no payload signal. Kept visible rather than hidden:
+# the models genuinely cannot express these attacks.
 BEHAVIOURAL = [
     ("brute force burst", {
         "requests_per_min_ip": 90.0, "login_failure_ratio": 1.0,
@@ -138,8 +137,8 @@ def main():
         r = post("/predict", {"features": feats})
         print(f"{name:<26} {r['score']:>7.3f} {str(r['is_attack']):>6} "
               f"{'-':>7} {'-':>7} {'-':>7} {r['latency_ms']:>7.2f}")
-    print("\nBehavioural vectors score near zero by design: Phase 4 established that")
-    print("the classifiers assign zero importance to the flow features that are")
+    print("\nBehavioural vectors score near zero by design. The classifiers")
+    print("assign zero importance to the flow features that are")
     print("zero-filled in the corpus. The rule engine detects those attacks.")
 
     # ---------- 3. robustness ----------

@@ -52,5 +52,5 @@ extracted.
 
 ## Training Boundary
 
-Do not train on ATRDF 2023. It is reserved for Phase 9 cross-dataset
+Do not train on ATRDF 2023. It is reserved for cross-dataset
 evaluation only.

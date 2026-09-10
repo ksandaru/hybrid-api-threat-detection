@@ -16,9 +16,7 @@ async function detectionMiddleware(req, res, next) {
   try {
     extraction = extractFeatures(req);
   } catch (err) {
-    // Feature extraction must never take the API down. If it fails there is no
-    // basis on which to judge the request, so it is allowed and the failure is
-    // reported rather than silently swallowed.
+    // Fail open (NFR2): no features means no basis to judge, so let it through.
     console.error('[detection] feature extraction failed, allowing request:', err.message);
     return next();
   }
@@ -34,22 +32,15 @@ async function detectionMiddleware(req, res, next) {
   let ml = null;
   let mlBoundary = null;
 
-  // The classifier is consulted only when three things hold:
-  //   - we are in hybrid mode
-  //   - no high-severity rule has already fired (its verdict is certain, and
-  //     the classifier cannot overturn it, so the call would buy nothing -- the
-  //     short-circuit is what keeps the cascade cheap)
-  //   - the request targets a payload-bearing endpoint
+  // Consult the classifier only in hybrid mode, only when no high-severity rule
+  // has fired (that verdict is final, so the call buys nothing and skipping it
+  // is what keeps the cascade cheap), and only on payload-bearing endpoints.
   //
-  // The last condition is why benign logins are no longer blocked. The payload
-  // model has signal on a search query and none on a credential body; applied
-  // to auth it produced a ~17% false positive rate on ordinary logins while
-  // adding nothing, because brute force and credential stuffing are caught
-  // behaviourally by the rule stage. See config.mlPayloadPaths.
-  // originalUrl, not req.path: this middleware is mounted at '/api', so by the
-  // time it runs Express has already stripped that prefix from req.path
-  // (req.path is '/search/vulnerable', not '/api/search/vulnerable').
-  // originalUrl keeps the full path, so the configured prefixes read naturally.
+  // The last condition is load-bearing: the payload model has signal on a search
+  // query and none on a credential body, and scored ~17% of ordinary logins as
+  // attacks until it was scoped. See config.mlPayloadPaths.
+  //
+  // originalUrl, not req.path -- Express strips the '/api' mount prefix.
   const targetPath = req.originalUrl || req.path || '';
   const payloadBearing = config.mlPayloadPaths.some((prefix) =>
     targetPath.startsWith(prefix));
@@ -83,12 +74,9 @@ async function detectionMiddleware(req, res, next) {
     decision,
   };
 
-  // Under trace, attach the scores to every inspected response, allowed ones
-  // included. A 403 already carries its score in the body, but an allowed
-  // request discards it, and that is precisely the number threshold
-  // recalibration needs: what combined score did benign traffic receive. Set
-  // here, before the response is sent, because res.on('finish') is too late to
-  // add a header. Trace-gated, so normal responses do not disclose the score.
+  // Allowed requests otherwise discard their score, which is exactly what
+  // threshold recalibration needs. Set before the response is sent -- 'finish'
+  // is too late for a header. Trace-gated so normal responses disclose nothing.
   if (process.env.DETECTION_TRACE === '1' && !res.headersSent) {
     res.set('X-Detection-Score', combined.score.toFixed(4));
     res.set('X-Detection-Rule-Score', rules.ruleScore.toFixed(4));
@@ -97,15 +85,10 @@ async function detectionMiddleware(req, res, next) {
   }
 
   res.on('finish', () => {
-    // Use the path captured at entry, not req.path. Express rewrites req.url as
-    // it dispatches into nested routers, so by the time this fires req.path has
-    // been shortened to '/login' and would never match here.
-    //
-    // Only requests that actually reached the auth handler carry a usable
-    // outcome. A blocked request never got there, so it stays unresolved and is
-    // excluded from the ratio -- otherwise a 403 would be recorded as a
-    // successful login, pulling the failure ratio down and un-blocking the next
-    // attempt in an oscillating loop.
+    // event.path, captured at entry: Express has since shortened req.path to
+    // '/login'. Only allowed requests reached the auth handler, so a blocked one
+    // stays unresolved -- scoring a 403 as a successful login would drag the
+    // failure ratio down and unblock the next attempt.
     if (event && decision === 'allowed' && event.path.includes('/auth/login')) {
       event.loginFailed = res.statusCode === 401;
     }

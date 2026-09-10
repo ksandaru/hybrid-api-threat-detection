@@ -108,11 +108,9 @@ function defaultPayloadFeatures() {
 /* ------------------------------------------------------------------ *
  * Per-source sliding window.
  *
- * Held in process memory. This is sufficient for the single-node
- * evaluation this project performs and is a documented limitation: the
- * window does not survive a restart and is not shared between instances,
- * so these features would need an external store before the framework
- * could be scaled horizontally.
+ * In process memory, which makes this a single-node control: the window
+ * is lost on restart and not shared between instances. Scaling out needs
+ * an external store (Redis sorted set keyed by source).
  * ------------------------------------------------------------------ */
 
 const ipEvents = new Map();       // ip   -> [{ ts, path, username, loginFailed }]
@@ -129,14 +127,10 @@ function prune(list, now) {
 /**
  * Drop map entries whose event lists have emptied.
  *
- * Pruning only happens for a source when that source is next seen, so a source
- * that sends a burst and never returns leaves an empty array behind forever.
- * One stale key is trivial; one per source address is a leak, and the Phase 8
- * attack simulation deliberately generates traffic from many distinct sources.
- *
- * Runs on a timer rather than on every request so the cost is not paid on the
- * request path. The handle is unref'd so it cannot hold the process open at
- * shutdown.
+ * Pruning is lazy -- it happens when a source is next seen -- so a source that
+ * bursts once and never returns leaves an empty array behind forever. One per
+ * address is a leak, and the attack simulation uses many distinct addresses.
+ * On a timer rather than per request; unref'd so it cannot hold the process open.
  */
 function sweep(now = Date.now()) {
   let removed = 0;
@@ -214,13 +208,9 @@ function safeDecode(value) {
   }
 }
 
-/**
- * Builds the string the payload features are computed over.
- *
- * The shape mirrors how CSIC 2010 rows are assembled in ml/preprocess.py
- * (URI, then query string, then body) so that live requests are described
- * the same way the training rows were.
- */
+// The string the payload features are computed over. Order matches how CSIC
+// rows are assembled in ml/preprocess.py -- URI, query string, body -- so live
+// requests are described the same way the training rows were.
 function requestText(req) {
   const parts = [req.path || ''];
 
@@ -265,14 +255,11 @@ function resetStore() {
 }
 
 /**
- * Live sizes of the in-memory window, for the /health endpoint and for tests.
+ * Live window sizes, for /health and for tests.
  *
- * Prunes as it counts, rather than reporting raw map contents. The background
- * sweep only runs once per window, so between sweeps a map still holds events
- * that have already aged out. A caller asking "is the window clear yet?" -- the
- * simulation harness waiting to start, the integration test's dirty-window
- * guard -- needs the answer as of now, not as of the last sweep, or it waits on
- * events that are already gone.
+ * Prunes as it counts. The sweep runs only once per window, so raw map contents
+ * can be up to a window stale -- and callers waiting for "is the window clear
+ * yet?" (the simulation harness, the integration test) need the answer now.
  */
 function storeStats(now = Date.now()) {
   let events = 0;

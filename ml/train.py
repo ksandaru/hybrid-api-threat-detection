@@ -109,12 +109,9 @@ def main():
     log(f"class balance benign={counts[0]:,} attack={counts[1]:,} "
         f"ratio={counts[0] / max(counts[1], 1):.1f}:1")
 
-    # 1. split first, three ways.
-    #
-    # The validation split exists so the decision threshold can be chosen on
-    # data the models did not fit, without touching the test split. Selecting an
-    # operating point on the test split would make the reported test metrics
-    # optimistic, because the threshold would have been tuned to them.
+    # 1. split first, three ways. The validation split is where the decision
+    # threshold gets chosen -- picking it on test would tune the operating point
+    # to the very rows the reported metrics come from.
     idx = np.arange(len(y))
     ifit, ite = train_test_split(idx, test_size=0.2, stratify=y, random_state=SEED)
     itr, iva = train_test_split(
@@ -141,14 +138,9 @@ def main():
 
     # ---- supervised models ----
     specs = {
-        # Left unconstrained, and that is a measured choice rather than a
-        # default left in place.
-        #
-        # Grown to purity the forest reaches a mean depth of 58 and about
-        # 14,000 leaves per tree, producing a 230 MB artefact -- larger than the
-        # memory allowance of the small free container tiers. Constrained
-        # variants were fitted on the same split and scored through the full
-        # combined pipeline at a validation-selected threshold:
+        # Unconstrained on purpose. Grown to purity this reaches mean depth 58
+        # and a 230 MB artefact, so constrained variants were fitted on the same
+        # split and scored through the full pipeline:
         #
         #   config                    payload F1   payload FPR   size
         #   unconstrained                 0.9357        0.0596   230 MB
@@ -156,16 +148,10 @@ def main():
         #   max_depth=20, leaf=10         0.8847        0.1306    34 MB
         #   60 trees, depth 16, leaf=20   0.8788        0.1283     9 MB
         #
-        # Every constraint roughly doubles the false positive rate on
-        # payload-bearing traffic. Notably ROC-AUC *improves* as the forest
-        # shrinks (0.9591 -> 0.9687), which is why an AUC-led choice picks the
-        # wrong model here: AUC averages over thresholds this system never
-        # operates at. The depth is holding genuine structure in the payload
-        # features, not memorising noise.
-        #
-        # The artefact size is therefore treated as a deployment constraint to
-        # be solved by hosting, not by degrading detection. See
-        # evaluation/results.md.
+        # Every constraint roughly doubles payload FPR while ROC-AUC *improves*
+        # (0.9591 -> 0.9687) -- AUC averages over thresholds this system never
+        # runs at, so choosing on it picks the wrong model. Size is handled by
+        # compression instead. See evaluation/results.md.
         "random_forest": RandomForestClassifier(
             n_estimators=100, random_state=SEED, n_jobs=-1
         ),
@@ -198,11 +184,9 @@ def main():
     iso_pred = (iso.predict(X_te_s) == -1).astype(int)
     iso_score = -iso.score_samples(X_te_s)  # higher = more anomalous
 
-    # Calibration bounds for the inference service. Isolation Forest emits an
-    # unbounded raw score, but the weighted combination in ml/app.py mixes it
-    # with two probabilities in [0, 1]. Percentiles of the training-split score
-    # distribution give a defensible mapping; p1/p99 rather than min/max so a
-    # single extreme row cannot compress the whole scale.
+    # Isolation Forest emits an unbounded score, but ml/app.py mixes it with two
+    # probabilities in [0, 1]. p1/p99 of the training distribution map it onto
+    # that range -- not min/max, or one extreme row compresses the whole scale.
     iso_train_scores = -iso.score_samples(X_tr_s)
     iso_calibration = {
         "p1": float(np.percentile(iso_train_scores, 1)),

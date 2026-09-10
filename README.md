@@ -12,22 +12,20 @@ three trained models, and the two verdicts are combined into one decision.
 
 ## Status
 
-**Implementation complete.** All ten build phases are finished; measured
-results are in [`evaluation/results.md`](evaluation/results.md).
+**v1.0.0 — complete.** Every component is implemented, measured and
+reproducible from a clean checkout. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
+for what shipped, and [`evaluation/results.md`](evaluation/results.md) for the
+full research record.
 
-| Phase | Area | Status |
+| Component | Stack | State |
 |---|---|---|
-| 0 | Environment and scaffold | Complete |
-| 1 | Dataset preprocessing, feature contract | Complete |
-| 2 | REST API | Complete |
-| 3 | Rule-based detection middleware | Complete |
-| 4 | Model training | Complete |
-| 5 | Inference service and combined scoring | Complete |
-| 6 | Hybrid integration | Complete |
-| 7 | Docker Compose runtime | Complete |
-| 8 | Attack simulation and threshold recalibration | Complete |
-| 9 | Comparative evaluation | Complete |
-| 10 | Documentation and reproducibility | Complete |
+| REST API and detection middleware | Node.js 22, Express | Complete |
+| Rule engine | 15 signatures over the feature vector | Complete |
+| Inference service | Python 3.13, FastAPI | Complete |
+| Models | Random Forest, XGBoost, Isolation Forest | Trained, evaluated |
+| Attack simulation | Four seeded generators | Complete |
+| Comparative evaluation | 5 configurations, McNemar, bootstrap CIs | Complete |
+| Deployment | Docker Compose, native | Both documented |
 
 ### Headline results
 
@@ -132,6 +130,7 @@ For a step-by-step walkthrough written for someone with no prior context, see
 
 ### Without Docker
 
+Summarised here; [`USER_MANUAL.md`](USER_MANUAL.md) has the full walkthrough.
 Two terminals. First the inference service:
 
 ```bash
@@ -154,7 +153,7 @@ See *Reproducing the results* below to generate them.
 
 ### Configuration
 
-Behaviour is environment-driven, which is how the Phase 9 evaluation builds its
+Behaviour is environment-driven, which is how the comparative evaluation builds its
 comparison configurations without code changes:
 
 | Variable | Default | Effect |
@@ -263,6 +262,18 @@ node api/test/hybridIntegration.js       # end to end; --no-ml for the fail-open
 ml/venv/Scripts/python.exe ml/test_inference.py
 ```
 
+`npm test` runs [`api/test/featureParity.js`](api/test/featureParity.js), which
+enforces NFR3: it proves `featureExtractor.js` and `ml/features.py` compute
+identical vectors for identical input. Run it before trusting any other result —
+if the two halves of the contract diverge, nothing errors, the models simply
+receive inputs that no longer mean what they were trained to mean.
+
+For a side-by-side view of what the classifier actually sees:
+
+```bash
+ml/venv/Scripts/python.exe ml/demo_feature_extraction.py
+```
+
 `api/test/endpoints.http` holds sample requests for every endpoint.
 Authentication is in-memory and resets on restart; `api/db/pool.js` writes to
 `request_log` when Postgres is available and fails soft when it is not.
@@ -273,9 +284,12 @@ Authentication is in-memory and resets on restart; `api/db/pool.js` writes to
 
 | File | Purpose |
 |---|---|
-| [`evaluation/results.md`](evaluation/results.md) | All measured results, phase by phase |
+| [`USER_MANUAL.md`](USER_MANUAL.md) | Running, configuring, demonstrating and troubleshooting the system |
+| [`RELEASE_NOTES.md`](RELEASE_NOTES.md) | What v1.0.0 contains, what changed, known limitations |
+| [`evaluation/results.md`](evaluation/results.md) | The full research record, increment by increment |
 | [`docs/deployment-aws-feasibility.md`](docs/deployment-aws-feasibility.md) | How this would deploy to AWS, and why it did not |
-| [`QUICKSTART.md`](QUICKSTART.md) | Assumption-free setup for a new machine |
+| [`QUICKSTART.md`](QUICKSTART.md) | Container route for a machine with nothing installed |
+| [`legacy/README.md`](legacy/README.md) | Retired material and why it moved |
 | `evaluation/CB016639_Results_Workbook.xlsx` | Results as native Excel tables and charts |
 | `evaluation/figures/` | Generated figures |
 
