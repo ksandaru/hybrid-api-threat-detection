@@ -59,9 +59,11 @@ def run(clients=6, seed=42, pause=0.3, recorder_name="sqli"):
             c.search(payload, rec, label=ATTACK, attack_type=f"sqli_{subtype}")
             time.sleep(pause * r.uniform(0.7, 1.3))
 
-        print("  " + rec.summary())
-        _per_family(rec.path)
-        return rec.path
+    # Read back only after the recorder closes: before then the rows are still
+    # buffered, and a fresh CSV reads as header-only -- an empty table.
+    print("  " + rec.summary())
+    _per_family(rec.path)
+    return rec.path
 
 
 def _per_family(path):
